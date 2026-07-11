@@ -1,0 +1,53 @@
+    Checking tua-rs v0.1.0 (/tmp/tua-rs)
+warning: unused import: `http::StatusCode`
+ --> src/dashboard.rs:9:5
+  |
+9 |     http::StatusCode,
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Wrap`
+  --> src/tui.rs:30:67
+   |
+30 | use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+   |                                                                   ^^^^
+
+warning: unused import: `Wrap`
+  --> src/tui.rs:30:67
+   |
+30 | use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+   |                                                                   ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `flush` found for struct `std::io::Stdout` in the current scope
+   --> src/tui.rs:447:35
+    |
+447 |         let _ = std::io::stdout().flush();
+    |                                   ^^^^^ method not found in `std::io::Stdout`
+    |
+   --> /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/std/src/io/mod.rs:1823:7
+    |
+    = note: the method is available for `std::io::Stdout` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `flush` is implemented but not in scope; perhaps you want to import it
+    |
+ 24 + use std::io::Write;
+    |
+
+warning: use of deprecated method `ratatui::Frame::<'_>::set_cursor`: the method set_cursor_position indicates more clearly what about the cursor to set
+   --> src/tui.rs:711:11
+    |
+711 |     frame.set_cursor(cursor_x, cursor_y);
+    |           ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `tua-rs` (lib) generated 3 warnings
+error: could not compile `tua-rs` (lib) due to 1 previous error; 3 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+warning: `tua-rs` (lib test) generated 2 warnings (1 duplicate)
+error: could not compile `tua-rs` (lib test) due to 1 previous error; 2 warnings emitted

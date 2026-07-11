@@ -9,7 +9,9 @@ pub mod profiles;
 pub mod prompts;
 pub mod providers;
 pub mod review;
+pub mod skills;
 pub mod tools;
+pub mod tui;
 
 use clap::{Parser, Subcommand};
 
@@ -43,6 +45,9 @@ enum Commands {
     Check,
     Test,
     Review,
+    Skills,
+    Dashboard,
+    Tui,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,9 +75,29 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Test) => {
             std::process::Command::new("cargo").args(["test"]).status()?;
         }
+        Some(Commands::Dashboard) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let app = tua_rs::dashboard::dashboard_router();
+                let addr = "0.0.0.0:8765";
+                println!("🦀 Tua Agent Dashboard — http://{addr}");
+                let listener = tokio::net::TcpListener::bind(addr).await?;
+                axum::serve(listener, app).await
+            })?;
+        }
         Some(Commands::Review) => {
             let findings = review::review_edits(&[], cli.cwd.as_deref());
             println!("{}", review::format_review(&findings));
+        }
+        Some(Commands::Skills) => {
+            let prompt = skills::format_skills_for_prompt();
+            println!("{}", prompt);
+        }
+        Some(Commands::Tui) => {
+            let mut app = tui::App::new();
+            if let Err(e) = tui::run_tui(&mut app) {
+                eprintln!("❌ TUI error: {e}");
+            }
         }
         None => {
             if let Some(ref prompt) = cli.prompt {
@@ -98,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                 println!("✅ Agent ready — connect provider and run loop");
             } else {
                 println!("🦀  Tua Agent RS v0.3.0");
-                println!("Commands: profiles | config | check | test | review");
+                println!("Commands: profiles | config | check | test | review | skills | dashboard | tui");
                 println!("Flags: --no-self-correct --no-checkpoint --no-review");
                 println!("Usage: tua-rs -p \"your Rust coding task\"");
             }
