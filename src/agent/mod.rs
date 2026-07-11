@@ -315,7 +315,7 @@ pub enum AgentEvent {
 /// onto a separate task. Providers should clone any shared state
 /// (e.g. HTTP clients) rather than borrowing from `self`.
 #[async_trait::async_trait]
-pub trait ModelProvider: Send + Sync {
+pub trait ModelProvider: Send + Sync + std::fmt::Debug {
     /// Start a streaming chat completion.
     ///
     /// * `messages` — the conversation history so far.

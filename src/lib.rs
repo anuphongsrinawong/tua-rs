@@ -9,6 +9,7 @@ pub mod dashboard;
 pub mod profiles;
 pub mod prompts;
 pub mod providers;
+pub mod session;
 pub mod skills;
 pub mod tools;
 pub mod tui;

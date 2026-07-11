@@ -23,3 +23,4 @@ axum = { version = "0.8", features = ["json"] }
 tower-http = { version = "0.6", features = ["cors"] }
 ratatui = "0.29"
 crossterm = "0.28"
+uuid = { version = "1", features = ["v4", "serde"] }

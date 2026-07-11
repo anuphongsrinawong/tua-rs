@@ -6,11 +6,8 @@
 //!
 //! ## Configuration
 //!
-//! The [`ProviderConfig`] struct holds the three essential parameters:
-//!
-//! * `api_key` — Bearer token for authentication.
-//! * `base_url` — API endpoint root (defaults to `https://api.openai.com/v1`).
-//! * `model` — Model identifier (e.g. `"gpt-4o"`, `"deepseek-chat"`).
+//! Uses the shared [`ProviderConfig`](super::ProviderConfig) with
+//! `provider_type = "openai"`.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -26,34 +23,7 @@ use crate::agent::{
     AgentError, AgentEvent, AgentMessage, AgentResult, AgentTool, AgentToolCall, ModelProvider,
 };
 
-// ---------------------------------------------------------------------------
-// Public configuration
-// ---------------------------------------------------------------------------
-
-/// Configuration for an OpenAI-compatible provider.
-///
-/// # Example (TOML)
-///
-/// ```toml
-/// [provider]
-/// api_key = "sk-..."
-/// base_url = "https://api.openai.com/v1"
-/// model = "gpt-4o"
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderConfig {
-    /// API key for Bearer authentication.
-    pub api_key: String,
-    /// API root URL (defaults to `https://api.openai.com/v1`).
-    #[serde(default = "default_base_url")]
-    pub base_url: String,
-    /// Model identifier (e.g. `"gpt-4o"`, `"deepseek-chat"`).
-    pub model: String,
-}
-
-fn default_base_url() -> String {
-    "https://api.openai.com/v1".to_string()
-}
+use super::ProviderConfig;
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -95,7 +65,7 @@ impl OpenAiCompatibleProvider {
 
     /// Full URL for the chat completions endpoint.
     fn chat_url(&self) -> String {
-        let base = self.config.base_url.trim_end_matches('/');
+        let base = self.config.resolved_base_url().trim_end_matches('/');
         format!("{base}/chat/completions")
     }
 }
@@ -171,7 +141,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
 // ---------------------------------------------------------------------------
 
 /// Convert `AgentMessage`s + a system prompt into the OpenAI wire format.
-fn agent_messages_to_wire(messages: Vec<AgentMessage>, system: String) -> Vec<WireMessage> {
+pub fn agent_messages_to_wire(messages: Vec<AgentMessage>, system: String) -> Vec<WireMessage> {
     let mut out: Vec<WireMessage> = Vec::with_capacity(messages.len() + 1);
 
     // Prepend system prompt as a system-role message.
@@ -237,7 +207,7 @@ fn agent_messages_to_wire(messages: Vec<AgentMessage>, system: String) -> Vec<Wi
 }
 
 /// Convert `AgentTool`s into the OpenAI tool definition format.
-fn agent_tools_to_wire(tools: &[AgentTool]) -> Option<Vec<WireToolDefinition>> {
+pub fn agent_tools_to_wire(tools: &[AgentTool]) -> Option<Vec<WireToolDefinition>> {
     if tools.is_empty() {
         return None;
     }
@@ -261,53 +231,53 @@ fn agent_tools_to_wire(tools: &[AgentTool]) -> Option<Vec<WireToolDefinition>> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<WireMessage>,
-    stream: bool,
+pub struct ChatRequest {
+    pub model: String,
+    pub messages: Vec<WireMessage>,
+    pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<WireToolDefinition>>,
+    pub tools: Option<Vec<WireToolDefinition>>,
 }
 
 #[derive(Debug, Serialize)]
-struct WireMessage {
-    role: String,
+pub struct WireMessage {
+    pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<WireToolCall>>,
+    pub tool_calls: Option<Vec<WireToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_call_id: Option<String>,
+    pub tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct WireToolCall {
-    id: String,
+pub struct WireToolCall {
+    pub id: String,
     #[serde(rename = "type")]
-    call_type: String,
-    function: WireToolCallFunction,
+    pub call_type: String,
+    pub function: WireToolCallFunction,
 }
 
 #[derive(Debug, Serialize)]
-struct WireToolCallFunction {
-    name: String,
-    arguments: String,
+pub struct WireToolCallFunction {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Debug, Serialize)]
-struct WireToolDefinition {
+pub struct WireToolDefinition {
     #[serde(rename = "type")]
-    def_type: String,
-    function: WireToolFunctionDef,
+    pub def_type: String,
+    pub function: WireToolFunctionDef,
 }
 
 #[derive(Debug, Serialize)]
-struct WireToolFunctionDef {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
+pub struct WireToolFunctionDef {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +361,7 @@ struct ToolCallAccumulator {
 ///
 /// The `byte_stream` parameter is the raw HTTP response body (bytes).
 /// Lines are delimited by `\n`, and each `data:` line is parsed as JSON.
-async fn parse_sse<S, E>(
+pub async fn parse_sse<S, E>(
     byte_stream: S,
     tx: futures::channel::mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), String>

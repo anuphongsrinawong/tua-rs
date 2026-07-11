@@ -132,6 +132,49 @@ impl App {
         }
     }
 
+    /// Create a new `App` from a previously saved session.
+    ///
+    /// The session's messages are loaded into the first tab, and the
+    /// session metadata (profile, model) is used to configure the tab.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tua_rs::session::Session;
+    /// use tua_rs::tui::App;
+    ///
+    /// let session = Session::new("rustacean", "deepseek/deepseek-v4-flash");
+    /// let app = App::from_session(session, "rustacean");
+    /// assert_eq!(app.tabs.len(), 1);
+    /// assert_eq!(app.tabs[0].messages.len(), 0);
+    /// ```
+    pub fn from_session(session: crate::session::Session, profile_name: &str) -> Self {
+        let profile = profiles::get_profile(profile_name)
+            .or_else(|| profiles::get_profile(&session.meta.profile))
+            .unwrap_or(&profiles::ALL_PROFILES[2]);
+
+        let mut tab = Tab::new(format!("Session {}", &session.meta.id.to_string()[..8]), profile);
+        tab.messages = session.messages;
+
+        let mut app = Self {
+            tabs: vec![tab],
+            active_tab: 0,
+            input_buffer: String::new(),
+            messages: vec![format!(
+                "🔄 Resumed session {} with profile '{}'",
+                session.meta.id, profile.name
+            )],
+            mode: AppMode::Normal,
+            palette: CommandPalette::new(),
+            should_quit: false,
+            profile_emoji: profile.emoji.to_string(),
+            tools_count: 14,
+            token_count: 0,
+        };
+        app.update_token_count();
+        app
+    }
+
     /// Switch to the next tab (wraps around).
     pub fn next_tab(&mut self) {
         if self.tabs.is_empty() {
@@ -303,7 +346,40 @@ impl App {
             "/diff" => "📝 Diff: use the `diff` tool in agent conversation".into(),
             "/permissions" => "🔐 Permission mode: ask (default) — use --permission flag to change"
                 .into(),
-            "/sessions" => "📋 Sessions: all tabs are active sessions".into(),
+            "/sessions" => {
+                format!(
+                    "📋 Sessions: {} active tab(s), {} total messages",
+                    self.tabs.len(),
+                    self.tabs.iter().map(|t| t.messages.len()).sum::<usize>()
+                )
+            }
+            "/resume" => {
+                match crate::session::default_sessions_dir() {
+                    Ok(dir) => {
+                        match crate::session::list_sessions(&dir) {
+                            Ok(summaries) if summaries.is_empty() => {
+                                "📂 No saved sessions found in `~/.tua-rs/sessions/`".into()
+                            }
+                            Ok(summaries) => {
+                                let mut lines: Vec<String> = Vec::with_capacity(summaries.len() + 1);
+                                lines.push("📂 Saved sessions:".into());
+                                for s in &summaries {
+                                    lines.push(format!(
+                                        "  {}  {}  {}  {} messages",
+                                        &s.id.to_string()[..8],
+                                        s.profile,
+                                        s.created_at,
+                                        s.message_count
+                                    ));
+                                }
+                                lines.join("\n")
+                            }
+                            Err(e) => format!("⚠️  Could not list sessions: {e}"),
+                        }
+                    }
+                    Err(e) => format!("⚠️  Could not access sessions directory: {e}"),
+                }
+            }
             "/rollback" => "⏪ Rollback: use the `checkpoint` tools to restore previous states".into(),
             "/undo" => "↩️ Undo: use the `edit` tools with rollback support".into(),
             _ => format!("❓ Unknown command: {command}"),
@@ -332,6 +408,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/diff",
     "/permissions",
     "/sessions",
+    "/resume",
     "/rollback",
     "/undo",
     "/clear",
@@ -1185,12 +1262,13 @@ mod tests {
     fn test_slash_commands_list() {
         assert_eq!(
             SLASH_COMMANDS.len(),
-            12,
-            "expected exactly 12 slash commands"
+            13,
+            "expected exactly 13 slash commands"
         );
         assert!(SLASH_COMMANDS.contains(&"/help"));
         assert!(SLASH_COMMANDS.contains(&"/clear"));
         assert!(SLASH_COMMANDS.contains(&"/profile"));
+        assert!(SLASH_COMMANDS.contains(&"/resume"));
         assert!(SLASH_COMMANDS.contains(&"/undo"));
     }
 

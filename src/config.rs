@@ -5,7 +5,10 @@
 //! you wish to override.
 
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::providers::ProviderSettings;
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -54,16 +57,29 @@ pub enum ConfigError {
 /// # Example `~/.tua-rs/config.toml`
 ///
 /// ```toml
-/// default_profile = "gpt-4o"
+/// default_profile = "rustacean"
+/// default_provider = "openai"
 /// tool_timeout_secs = 60
 /// self_correction = false
 /// context_limit = 65536
+///
+/// [providers.openai]
+/// api_key = "sk-..."
+/// base_url = "https://api.openai.com/v1"
+/// model = "gpt-4o"
+///
+/// [providers.anthropic]
+/// api_key = "sk-ant-..."
+/// model = "claude-sonnet-4-20250514"
 /// ```
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct TuaConfig {
     /// Default profile to use when none is explicitly requested.
     pub default_profile: String,
+
+    /// Default provider type: `"openai"`, `"anthropic"`, or `"ollama"`.
+    pub default_provider: String,
 
     /// Maximum time (in seconds) a tool may run before being killed.
     pub tool_timeout_secs: u64,
@@ -88,12 +104,19 @@ pub struct TuaConfig {
 
     /// Whether review mode is active (human-in-the-loop).
     pub review_enabled: bool,
+
+    /// Per-provider configuration overrides.
+    ///
+    /// Keys are provider names (`"openai"`, `"anthropic"`, `"ollama"`).
+    #[serde(default)]
+    pub providers: HashMap<String, ProviderSettings>,
 }
 
 impl Default for TuaConfig {
     fn default() -> Self {
         Self {
             default_profile: "default".to_string(),
+            default_provider: "openai".to_string(),
             tool_timeout_secs: 30,
             max_output_chars: 10_000,
             self_correction: true,
@@ -102,6 +125,24 @@ impl Default for TuaConfig {
             context_limit: 128_000,
             prompt_caching: true,
             review_enabled: true,
+            providers: HashMap::new(),
+        }
+    }
+}
+
+impl TuaConfig {
+    /// Get the [`ProviderSettings`] for a specific provider type, if defined.
+    pub fn provider_settings(&self, provider_type: &str) -> Option<&ProviderSettings> {
+        self.providers.get(provider_type)
+    }
+
+    /// Resolve the effective default provider type, checking the config
+    /// `default_provider` field first, then falling back to `"openai"`.
+    pub fn effective_default_provider(&self) -> &str {
+        if self.default_provider.is_empty() {
+            "openai"
+        } else {
+            &self.default_provider
         }
     }
 }
@@ -154,6 +195,7 @@ mod tests {
     fn default_config_is_sane() {
         let cfg = TuaConfig::default();
         assert_eq!(cfg.default_profile, "default");
+        assert_eq!(cfg.default_provider, "openai");
         assert_eq!(cfg.tool_timeout_secs, 30);
         assert_eq!(cfg.max_output_chars, 10_000);
         assert!(cfg.self_correction);
@@ -162,6 +204,7 @@ mod tests {
         assert_eq!(cfg.context_limit, 128_000);
         assert!(cfg.prompt_caching);
         assert!(cfg.review_enabled);
+        assert!(cfg.providers.is_empty());
     }
 
     #[test]
@@ -178,6 +221,7 @@ mod tests {
     fn deserialize_full_toml() {
         let toml_str = r#"
             default_profile = "claude-sonnet-4"
+            default_provider = "anthropic"
             tool_timeout_secs = 120
             max_output_chars = 5000
             self_correction = false
@@ -186,9 +230,18 @@ mod tests {
             context_limit = 65536
             prompt_caching = false
             review_enabled = false
+
+            [providers.anthropic]
+            api_key = "sk-ant-..."
+            model = "claude-sonnet-4-20250514"
+
+            [providers.ollama]
+            base_url = "http://localhost:11434/v1"
+            model = "llama3"
         "#;
         let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.default_profile, "claude-sonnet-4");
+        assert_eq!(cfg.default_provider, "anthropic");
         assert_eq!(cfg.tool_timeout_secs, 120);
         assert_eq!(cfg.max_output_chars, 5_000);
         assert!(!cfg.self_correction);
@@ -197,6 +250,16 @@ mod tests {
         assert_eq!(cfg.context_limit, 65_536);
         assert!(!cfg.prompt_caching);
         assert!(!cfg.review_enabled);
+
+        // Check provider sections
+        assert_eq!(cfg.providers.len(), 2);
+        let anthropic = cfg.provider_settings("anthropic").unwrap();
+        assert_eq!(anthropic.api_key.as_deref(), Some("sk-ant-..."));
+        assert_eq!(anthropic.model.as_deref(), Some("claude-sonnet-4-20250514"));
+
+        let ollama = cfg.provider_settings("ollama").unwrap();
+        assert_eq!(ollama.base_url.as_deref(), Some("http://localhost:11434/v1"));
+        assert_eq!(ollama.model.as_deref(), Some("llama3"));
     }
 
     #[test]
@@ -369,8 +432,59 @@ tool_timeout_secs = not_a_number"#,
         let toml_str = "";
         let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.default_profile, "default");
+        assert_eq!(cfg.default_provider, "openai");
         assert_eq!(cfg.tool_timeout_secs, 30);
         assert_eq!(cfg.max_output_chars, 10_000);
         assert!(cfg.self_correction);
+        assert!(cfg.providers.is_empty());
+    }
+
+    #[test]
+    fn test_effective_default_provider_fallback() {
+        let cfg = TuaConfig::default();
+        assert_eq!(cfg.effective_default_provider(), "openai");
+    }
+
+    #[test]
+    fn test_effective_default_provider_empty() {
+        let mut cfg = TuaConfig::default();
+        cfg.default_provider = "".to_string();
+        assert_eq!(cfg.effective_default_provider(), "openai");
+    }
+
+    #[test]
+    fn test_effective_default_provider_from_toml() {
+        let toml_str = r#"default_provider = "anthropic""#;
+        let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.effective_default_provider(), "anthropic");
+    }
+
+    #[test]
+    fn test_provider_settings_none_missing() {
+        let cfg = TuaConfig::default();
+        assert!(cfg.provider_settings("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_deserialize_providers_with_api_key_only() {
+        let toml_str = r#"
+            [providers.openai]
+            api_key = "sk-test-key"
+        "#;
+        let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
+        let openai = cfg.provider_settings("openai").unwrap();
+        assert_eq!(openai.api_key.as_deref(), Some("sk-test-key"));
+        assert!(openai.base_url.is_none());
+        assert!(openai.model.is_none());
+    }
+
+    #[test]
+    fn test_deserialize_providers_empty_section() {
+        let toml_str = r#"
+            [providers]
+        "#;
+        let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
+        // Empty [providers] section means no providers
+        assert!(cfg.providers.is_empty());
     }
 }
