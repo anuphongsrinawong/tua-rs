@@ -35,6 +35,19 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Profiles, Config, Check, Test, Review, Sessions, Tui, Bench,
+    /// Compile a crate to WebAssembly
+    Wasm {
+        /// Path to the crate directory
+        path: String,
+        /// Build in release mode
+        #[arg(long)]
+        release: bool,
+    },
+    /// Complete Rust code by prefix
+    Complete {
+        /// Prefix to complete (e.g. Vec, impl, Option)
+        prefix: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,6 +66,25 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Sessions) => println!("Session persistence: enabled"),
         Some(Commands::Tui) => println!("🦀 TUI mode — ratatui interface"),
         Some(Commands::Bench) => println!("🏃 Benchmarks: cargo bench"),
+        Some(Commands::Wasm { path, release }) => {
+            let mode = if release { "release" } else { "debug" };
+            println!("🦀 Compiling {} to WebAssembly ({mode})...", path);
+            match tua_rs::wasm::compile_to_wasm(&path, release) {
+                Ok(output) => println!("✅ Success:\n{output}"),
+                Err(e) => eprintln!("❌ Failed:\n{e}"),
+            }
+        }
+        Some(Commands::Complete { prefix }) => {
+            let completer = tua_rs::completion::CodeCompleter::new();
+            let results = completer.complete(&prefix);
+            if results.is_empty() {
+                println!("No completions for '{}'", prefix);
+            } else {
+                for word in &results {
+                    println!("{word}");
+                }
+            }
+        }
         _ => {
             if let Some(ref prompt) = cli.prompt {
                 println!("🦀 Tua Agent RS v1.0.0 | {} | {}", cli.profile, cli.provider);
