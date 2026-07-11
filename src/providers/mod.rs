@@ -519,11 +519,7 @@ pub fn build_default_provider(
     }
 
     if validate {
-        let rt = tokio::runtime::Handle::try_current().map(|h| {
-            // We're already in a runtime — block_on won't work.
-            // Spawn a new task on the current runtime.
-            h
-        });
+        let rt = tokio::runtime::Handle::try_current();
 
         if rt.is_err() {
             // No active runtime — create a temporary one just for validation.

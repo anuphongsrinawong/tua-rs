@@ -31,7 +31,7 @@ use futures::{Stream, StreamExt};
 use tokio::time::sleep;
 
 use crate::agent::{
-    AgentError, AgentEvent, AgentMessage, AgentResult, AgentTool, AgentToolCall, ModelProvider,
+    AgentEvent, AgentMessage, AgentResult, AgentTool, AgentToolCall, ModelProvider,
 };
 
 // ---------------------------------------------------------------------------

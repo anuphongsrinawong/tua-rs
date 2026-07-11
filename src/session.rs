@@ -313,7 +313,7 @@ pub fn list_sessions(dir: impl AsRef<Path>) -> SessionResult<Vec<SessionSummary>
             source,
         })?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "jsonl"))
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
         .collect();
 
     // Sort by file name (which is the UUID) for deterministic ordering.
