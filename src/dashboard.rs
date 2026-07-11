@@ -596,7 +596,7 @@ mod tests {
         let html = resp.text().await.unwrap();
         assert!(html.contains("Tua Agent"), "HTML should mention Tua Agent");
         assert!(html.contains("#0d1117"), "HTML should include dark theme bg");
-        assert!(html.contains("dashboard"), "HTML should contain dashboard");
+        assert!(html.contains("Dashboard"), "HTML should contain dashboard");
     }
 
     /// Status endpoint returns JSON with expected fields.
