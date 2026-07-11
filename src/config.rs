@@ -201,20 +201,31 @@ mod tests {
 
     #[test]
     fn config_path_uses_home_env() {
+        // Save original env vars and set a known HOME
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        std::env::set_var("HOME", "/home/testuser");
+        std::env::remove_var("USERPROFILE");
+
         let path = config_path();
         let path_str = path.to_string_lossy();
-        // HOME or USERPROFILE may not be set (parallel tests may clear them).
-        // At minimum the path should end with the expected suffix.
         assert!(
             path_str.ends_with(".tua-rs/config.toml"),
             "expected path to end with '.tua-rs/config.toml', got: {path_str}"
         );
-        // If HOME is set, verify it's part of the path
-        if let Ok(home) = std::env::var("HOME") {
-            assert!(
-                path_str.contains(&home),
-                "expected {path_str} to contain HOME {home}"
-            );
+        assert!(
+            path_str.contains("/home/testuser"),
+            "expected {path_str} to contain /home/testuser"
+        );
+
+        // Restore
+        if let Some(h) = original_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(u) = original_userprofile {
+            std::env::set_var("USERPROFILE", u);
         }
     }
 
