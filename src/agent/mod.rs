@@ -15,6 +15,84 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
+// Public helper functions (self-correction)
+// ---------------------------------------------------------------------------
+
+/// Detect whether any of the recent tool results modified a `.rs` file.
+///
+/// This heuristic scans the message history for [`AgentMessage::ToolResult`]
+/// entries whose content mentions paths ending in `.rs` or keywords such
+/// as "written", "wrote", or "modified" — indicators that a tool (e.g.
+/// `write`, `edit`, or `rustfmt`) may have changed Rust source code.
+///
+/// Returns `true` when at least one such result is found.
+pub fn detect_rust_edits(messages: &[AgentMessage]) -> bool {
+    messages.iter().any(|msg| match msg {
+        AgentMessage::ToolResult { output, .. } => {
+            let lower = output.to_lowercase();
+            // Check for explicit `.rs` file references in the output
+            if lower.contains(".rs")
+                && (lower.contains("written")
+                    || lower.contains("wrote")
+                    || lower.contains("modified")
+                    || lower.contains("updated")
+                    || lower.contains("saved"))
+            {
+                return true;
+            }
+            // Also match on file-path-like patterns
+            lower.contains(".rs`")
+                || lower.contains(".rs ")
+                || lower.contains(".rs\n")
+                || lower.ends_with(".rs")
+        }
+        _ => false,
+    })
+}
+
+/// Run `cargo check` in the specified working directory and return the
+/// output.
+///
+/// * `cwd` — optional working directory. When `None`, the current
+///   process working directory is used.
+///
+/// Returns `Ok(output)` if the command succeeded (exit code 0).
+/// Returns `Err(errors)` if compilation failed or the command could not
+/// be spawned.
+pub async fn run_cargo_check(cwd: Option<&str>) -> Result<String, String> {
+    let mut cmd = tokio::process::Command::new("cargo");
+    cmd.arg("check");
+    cmd.arg("--color");
+    cmd.arg("never");
+
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to spawn `cargo check`: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    let combined = if stderr.is_empty() {
+        stdout
+    } else if stdout.is_empty() {
+        stderr
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+
+    if output.status.success() {
+        Ok(combined)
+    } else {
+        Err(combined)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
 
@@ -95,9 +173,7 @@ pub enum AgentMessage {
 impl AgentMessage {
     /// Build a user message.
     pub fn user(text: impl Into<String>) -> Self {
-        Self::User {
-            text: text.into(),
-        }
+        Self::User { text: text.into() }
     }
 
     /// Build an assistant message with optional text and tool calls.
@@ -265,12 +341,48 @@ pub struct AgentConfig {
     /// Each round is: model generates → tool calls → tool results fed back.
     /// `None` means no limit (use with caution).
     pub max_tool_rounds: Option<usize>,
+
+    /// Configuration for self-correction behaviour.
+    pub harness_config: AgentHarnessConfig,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             max_tool_rounds: Some(50),
+            harness_config: AgentHarnessConfig::default(),
+        }
+    }
+}
+
+/// Configuration for the self-correction subsystem.
+///
+/// When self-correction is enabled, the harness runs `cargo check` after
+/// every tool execution round that modifies `.rs` files. If compilation
+/// errors are detected, they are fed back to the model as a
+/// [`AgentMessage::User`] so it can attempt to fix them automatically.
+#[derive(Debug, Clone)]
+pub struct AgentHarnessConfig {
+    /// Whether self-correction via `cargo check` is active.
+    ///
+    /// When `true`, the harness will automatically detect edits to Rust
+    /// source files and run `cargo check` after each tool execution round.
+    pub self_correction: bool,
+
+    /// Maximum number of consecutive self-correction rounds.
+    ///
+    /// Each round injects compiler errors as a user message and allows
+    /// the model one more attempt to fix them. Once this limit is
+    /// reached the harness stops injecting errors and continues
+    /// normally.
+    pub max_self_corrections: u32,
+}
+
+impl Default for AgentHarnessConfig {
+    fn default() -> Self {
+        Self {
+            self_correction: true,
+            max_self_corrections: 3,
         }
     }
 }
@@ -328,6 +440,16 @@ impl AgentLoop {
         &self.system
     }
 
+    /// Return a reference to the agent configuration.
+    pub fn config(&self) -> &AgentConfig {
+        &self.config
+    }
+
+    /// Return a mutable reference to the agent configuration.
+    pub fn config_mut(&mut self) -> &mut AgentConfig {
+        &mut self.config
+    }
+
     /// Run the agent loop, consuming `messages` and returning a
     /// `Stream` of [`AgentEvent`]s.
     ///
@@ -358,6 +480,7 @@ impl AgentLoop {
         tokio::spawn(async move {
             let mut current_messages = messages;
             let mut tool_rounds = 0usize;
+            let mut consecutive_self_corrections = 0u32;
 
             loop {
                 // --- Check round limit ---
@@ -409,8 +532,9 @@ impl AgentLoop {
                         Some(AgentEvent::ToolResult { .. }) => {
                             // ToolResults inside the model stream should not appear;
                             // the harness manages those. Forward anyway.
-                            let _ =
-                                tx.try_send(AgentEvent::Error("unexpected ToolResult in model stream — ignoring".into()));
+                            let _ = tx.try_send(AgentEvent::Error(
+                                "unexpected ToolResult in model stream — ignoring".into(),
+                            ));
                         }
                         Some(AgentEvent::Done) | None => break,
                     }
@@ -429,10 +553,8 @@ impl AgentLoop {
                     let tool = match self_tool_by_name(&tools, &tc.name) {
                         Some(t) => t,
                         None => {
-                            let _ = tx.try_send(AgentEvent::Error(format!(
-                                "unknown tool `{}`",
-                                tc.name
-                            )));
+                            let _ = tx
+                                .try_send(AgentEvent::Error(format!("unknown tool `{}`", tc.name)));
                             // Insert a placeholder result so the model can recover.
                             tool_results.push(AgentMessage::tool_result(
                                 &tc.id,
@@ -461,14 +583,63 @@ impl AgentLoop {
                 }
 
                 // --- Build the assistant message and append tool results ---
-                let assistant_text = if model_text.is_empty() {
+                let assistant_opt: Option<String> = if model_text.is_empty() {
                     None
                 } else {
-                    Some(model_text)
+                    Some(model_text.clone())
                 };
-                current_messages
-                    .push(AgentMessage::assistant(assistant_text, tool_calls));
-                current_messages.extend(tool_results);
+                current_messages.push(AgentMessage::assistant(
+                    assistant_opt,
+                    tool_calls.clone(),
+                ));
+                current_messages.extend(tool_results.clone());
+
+                // ---------------------------------------------------------
+                // Self-correction step
+                // ---------------------------------------------------------
+                // If self-correction is enabled and the tool round modified
+                // `.rs` files, run `cargo check` and inject any errors as a
+                // user message so the model can attempt to fix them.
+                let correction_config = &config.harness_config;
+                if correction_config.self_correction
+                    && consecutive_self_corrections < correction_config.max_self_corrections
+                    && detect_rust_edits(&current_messages)
+                {
+                    match run_cargo_check(None).await {
+                        Ok(_output) => {
+                            // cargo check passed — reset the counter.
+                            consecutive_self_corrections = 0;
+                        }
+                        Err(errors) => {
+                            consecutive_self_corrections += 1;
+                            let header = format!(
+                                "\n\n[Self-correction round {}/{} — cargo check reported errors]\n",
+                                consecutive_self_corrections,
+                                correction_config.max_self_corrections,
+                            );
+                            let _ = tx.try_send(AgentEvent::TextDelta(header));
+                            let _ = tx.try_send(AgentEvent::Error(format!(
+                                "cargo check failed ({}/{} corrections); see injected user message",
+                                consecutive_self_corrections,
+                                correction_config.max_self_corrections,
+                            )));
+
+                            let user_msg = format!(
+                                "The `cargo check` command produced errors. \
+                                 Please fix them so the project compiles.\n\n```\n{errors}\n```"
+                            );
+                            current_messages.push(AgentMessage::user(user_msg));
+
+                            // Instead of continuing the outer loop (which
+                            // would consume another tool round), we jump
+                            // back to the model call via `continue`.
+                            continue;
+                        }
+                    }
+                } else {
+                    // No self-correction triggered; reset counter.
+                    consecutive_self_corrections = 0;
+                }
                 // The loop continues for another round.
             }
         });
@@ -494,7 +665,7 @@ fn self_tool_by_name<'a>(tools: &'a [AgentTool], name: &str) -> Option<&'a Agent
 mod tests {
     use super::*;
     use futures::StreamExt;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
 
     /// A mock provider that echoes a fixed response.
     struct EchoProvider {
@@ -538,10 +709,7 @@ mod tests {
         // A simple tool that uppercases its "input" argument
         let uppercase_exec: ToolExecutor = Arc::new(|args| {
             Box::pin(async move {
-                let input = args
-                    .get("input")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let input = args.get("input").and_then(|v| v.as_str()).unwrap_or("");
                 Ok(input.to_uppercase())
             })
         });
@@ -605,7 +773,9 @@ mod tests {
         let loop_ = AgentLoop::new(provider, "system prompt", vec![]);
         let events: Vec<AgentEvent> = loop_.run(vec![]).collect().await;
 
-        let error_found = events.iter().any(|e| matches!(e, AgentEvent::Error(msg) if msg.contains("nonexistent_tool")));
+        let error_found = events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Error(msg) if msg.contains("nonexistent_tool")));
         assert!(error_found, "expected Error about unknown tool");
         assert!(matches!(events.last(), Some(AgentEvent::Done)));
     }
@@ -641,6 +811,7 @@ mod tests {
 
         let config = AgentConfig {
             max_tool_rounds: Some(3),
+            harness_config: AgentHarnessConfig::default(),
         };
         let loop_ = AgentLoop::with_config(provider, "system prompt", vec![tool], config);
 
@@ -674,6 +845,8 @@ mod tests {
         assert!(matches!(msg, AgentMessage::Assistant { text: Some(t), .. } if t == "response"));
 
         let msg = AgentMessage::tool_result("c1", "output");
-        assert!(matches!(msg, AgentMessage::ToolResult { tool_call_id, output } if tool_call_id == "c1" && output == "output"));
+        assert!(
+            matches!(msg, AgentMessage::ToolResult { tool_call_id, output } if tool_call_id == "c1" && output == "output")
+        );
     }
 }

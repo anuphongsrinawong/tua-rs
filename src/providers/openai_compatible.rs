@@ -133,17 +133,18 @@ impl ModelProvider for OpenAiCompatibleProvider {
             tools: wire_tools,
         };
 
-        let response = self.client.post(&url).json(&body).send().await.map_err(|e| {
-            AgentError::StreamError(format!("HTTP request failed: {e}"))
-        })?;
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::StreamError(format!("HTTP request failed: {e}")))?;
 
         // Check for HTTP-level errors before attempting to stream.
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let body_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<no body>".into());
+            let body_text = response.text().await.unwrap_or_else(|_| "<no body>".into());
             warn!(status, body = %body_text, "API returned error");
             return Err(AgentError::StreamError(format!(
                 "API error: {status} — {body_text}"
@@ -415,12 +416,12 @@ where
 
             let line: Vec<u8> = buf.drain(..=nl_pos).collect();
             let line = line
-                .strip_suffix(&[b'\n'])
+                .strip_suffix(b"\n")
                 .unwrap_or(&line)
-                .strip_suffix(&[b'\r'])
+                .strip_suffix(b"\r")
                 .unwrap_or(&line);
 
-            if line.is_empty() || line.starts_with(&[b':']) {
+            if line.is_empty() || line.starts_with(b":") {
                 // SSE comment or heartbeat — skip.
                 continue;
             }
@@ -455,7 +456,9 @@ where
                 // --- Text delta ---
                 if let Some(ref content) = choice.delta.content {
                     if !content.is_empty()
-                        && tx.unbounded_send(AgentEvent::TextDelta(content.clone())).is_err()
+                        && tx
+                            .unbounded_send(AgentEvent::TextDelta(content.clone()))
+                            .is_err()
                     {
                         return Ok(());
                     }
@@ -484,7 +487,7 @@ where
                     for tc in tool_calls {
                         let acc = tool_accums
                             .entry(tc.index)
-                            .or_insert_with(ToolCallAccumulator::default);
+                            .or_default();
 
                         if let Some(id) = tc.id.as_ref() {
                             acc.id = Some(id.clone());
@@ -492,10 +495,7 @@ where
                         if let Some(name) = tc.function.as_ref().and_then(|f| f.name.as_ref()) {
                             acc.name = Some(name.clone());
                         }
-                        if let Some(args) = tc
-                            .function
-                            .as_ref()
-                            .and_then(|f| f.arguments.as_ref())
+                        if let Some(args) = tc.function.as_ref().and_then(|f| f.arguments.as_ref())
                         {
                             acc.arguments.push_str(args);
                         }
@@ -658,10 +658,7 @@ mod tests {
         let last = tool_events.last().unwrap();
         assert_eq!(last.id, "call_1");
         assert_eq!(last.name, "get_weather");
-        assert_eq!(
-            last.arguments,
-            serde_json::json!({"location": "NYC"})
-        );
+        assert_eq!(last.arguments, serde_json::json!({"location": "NYC"}));
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@
 
 pub mod agent;
 pub mod providers;
+pub mod tools;
 
 fn main() {
     println!("🦀 Tua Agent RS v0.1.0");
