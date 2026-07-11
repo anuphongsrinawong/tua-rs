@@ -520,7 +520,10 @@ mod tests {
         for skill in list_skills() {
             assert!(!skill.name.is_empty(), "skill name must not be empty");
             assert!(
-                skill.name.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                skill
+                    .name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '-'),
                 "skill name '{}' must be kebab-case",
                 skill.name,
             );
@@ -592,10 +595,19 @@ mod tests {
     #[test]
     fn test_format_skills_for_prompt_structure() {
         let prompt = format_skills_for_prompt();
-        assert!(prompt.starts_with("## Available Rust Skills"), "prompt must start with heading");
-        assert!(prompt.contains("### ownership-borrowing"), "must contain ownership-borrowing heading");
+        assert!(
+            prompt.starts_with("## Available Rust Skills"),
+            "prompt must start with heading"
+        );
+        assert!(
+            prompt.contains("### ownership-borrowing"),
+            "must contain ownership-borrowing heading"
+        );
         assert!(prompt.contains("### wasm"), "must contain wasm heading");
-        assert!(prompt.contains("<summary>Reference</summary>"), "must have detail/summary tags");
+        assert!(
+            prompt.contains("<summary>Reference</summary>"),
+            "must have detail/summary tags"
+        );
         assert!(prompt.contains("---\n"), "must end with horizontal rule");
     }
 
@@ -605,7 +617,11 @@ mod tests {
         let prompt = format_skills_for_prompt();
         for skill in list_skills() {
             let heading = format!("### {}", skill.name);
-            assert!(prompt.contains(&heading), "prompt missing heading for '{}'", skill.name);
+            assert!(
+                prompt.contains(&heading),
+                "prompt missing heading for '{}'",
+                skill.name
+            );
         }
     }
 
@@ -617,8 +633,7 @@ mod tests {
             let display_name = skill.name.replace('-', " ");
             // The content should contain key terms from the name
             assert!(
-                skill.content.contains(&display_name)
-                    || skill.content.contains(skill.name),
+                skill.content.contains(&display_name) || skill.content.contains(skill.name),
                 "skill '{}' content should contain its own name or variant",
                 skill.name,
             );

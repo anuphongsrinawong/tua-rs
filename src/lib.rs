@@ -5,10 +5,10 @@
 
 pub mod agent;
 pub mod config;
+pub mod dashboard;
 pub mod profiles;
 pub mod prompts;
 pub mod providers;
 pub mod skills;
-pub mod dashboard;
 pub mod tools;
 pub mod tui;

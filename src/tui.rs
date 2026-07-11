@@ -186,12 +186,14 @@ impl App {
                 .map(|t| t.profile)
                 .unwrap_or(&profiles::ALL_PROFILES[2]);
             self.tabs[0] = Tab::new("Chat 1", profile);
-            self.messages.push("🔄 Replaced last tab with a fresh one".into());
+            self.messages
+                .push("🔄 Replaced last tab with a fresh one".into());
             return;
         }
 
         let removed = self.tabs.remove(self.active_tab);
-        self.messages.push(format!("🗑️ Closed tab '{}'", removed.name));
+        self.messages
+            .push(format!("🗑️ Closed tab '{}'", removed.name));
 
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
@@ -246,18 +248,18 @@ impl App {
     /// (rough estimate: 1 token ≈ 4 characters).
     fn update_token_count(&mut self) {
         if let Some(tab) = self.active_tab() {
-            let total_chars: usize = tab
-                .messages
-                .iter()
-                .map(|m| match m {
-                    AgentMessage::User { text }
-                    | AgentMessage::ToolResult { output: text, .. } => text.len(),
-                    AgentMessage::Assistant {
-                        text: Some(text), ..
-                    } => text.len(),
-                    AgentMessage::Assistant { text: None, .. } => 0,
-                })
-                .sum();
+            let total_chars: usize =
+                tab.messages
+                    .iter()
+                    .map(|m| match m {
+                        AgentMessage::User { text }
+                        | AgentMessage::ToolResult { output: text, .. } => text.len(),
+                        AgentMessage::Assistant {
+                            text: Some(text), ..
+                        } => text.len(),
+                        AgentMessage::Assistant { text: None, .. } => 0,
+                    })
+                    .sum();
             self.token_count = total_chars / 4;
         }
     }
@@ -421,7 +423,9 @@ pub struct TerminalGuard;
 
 impl TerminalGuard {
     /// Enter raw mode and set up the terminal for the TUI.
-    pub fn enter() -> Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>), Box<dyn std::error::Error>> {
+    pub fn enter(
+    ) -> Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>), Box<dyn std::error::Error>>
+    {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(
             std::io::stdout(),
@@ -479,18 +483,18 @@ fn render(frame: &mut Frame, app: &mut App) {
 
     let constraints = if app.palette.visible {
         vec![
-            Constraint::Length(1),   // tab bar
-            Constraint::Min(0),      // palette area (floating)
-            Constraint::Min(1),      // chat area
-            Constraint::Length(1),   // input line
-            Constraint::Length(1),   // status bar
+            Constraint::Length(1), // tab bar
+            Constraint::Min(0),    // palette area (floating)
+            Constraint::Min(1),    // chat area
+            Constraint::Length(1), // input line
+            Constraint::Length(1), // status bar
         ]
     } else {
         vec![
-            Constraint::Length(1),   // tab bar
-            Constraint::Min(1),      // chat area
-            Constraint::Length(1),   // input line
-            Constraint::Length(1),   // status bar
+            Constraint::Length(1), // tab bar
+            Constraint::Min(1),    // chat area
+            Constraint::Length(1), // input line
+            Constraint::Length(1), // status bar
         ]
     };
 
@@ -506,8 +510,24 @@ fn render(frame: &mut Frame, app: &mut App) {
     } else {
         render_chat_area(frame, app, chunks[1]);
     }
-    render_input_line(frame, app, if app.palette.visible { chunks[3] } else { chunks[2] });
-    render_status_bar(frame, app, if app.palette.visible { chunks[4] } else { chunks[3] });
+    render_input_line(
+        frame,
+        app,
+        if app.palette.visible {
+            chunks[3]
+        } else {
+            chunks[2]
+        },
+    );
+    render_status_bar(
+        frame,
+        app,
+        if app.palette.visible {
+            chunks[4]
+        } else {
+            chunks[3]
+        },
+    );
 }
 
 /// Render the top tab bar with profile emojis.
@@ -522,9 +542,7 @@ fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::DarkGray)
+            Style::default().fg(Color::White).bg(Color::DarkGray)
         };
 
         let prefix = if is_active { " ▶ " } else { "   " };
@@ -534,18 +552,17 @@ fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
 
         // Separator
         if i < app.tabs.len() - 1 {
-            spans.push(Span::styled(
-                " │ ",
-                Style::default().fg(Color::DarkGray),
-            ));
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         }
     }
 
     // Fill the remaining space
     spans.push(Span::styled(
-        " ".repeat(area.width.saturating_sub(
-            spans.iter().map(|s| s.content.len()).sum::<usize>() as u16,
-        ) as usize),
+        " ".repeat(
+            area.width
+                .saturating_sub(spans.iter().map(|s| s.content.len()).sum::<usize>() as u16)
+                as usize,
+        ),
         Style::default().bg(Color::Reset),
     ));
 
@@ -568,7 +585,9 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
             AgentMessage::User { text } => {
                 let prefix = Span::styled(
                     "👤 ",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 );
                 let content = Span::styled(text.clone(), Style::default().fg(Color::White));
                 lines.push(Line::from(vec![prefix, content]));
@@ -578,7 +597,9 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
             } => {
                 let prefix = Span::styled(
                     "🤖 ",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 );
                 let content = Span::styled(text.clone(), Style::default().fg(Color::Cyan));
                 lines.push(Line::from(vec![prefix, content]));
@@ -613,9 +634,9 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
     // Apply scroll offset
     let available_height = area.height.saturating_sub(1) as usize;
     let total_lines = lines.len();
-    let scroll = tab.scroll_offset.min(
-        total_lines.saturating_sub(available_height).max(0),
-    );
+    let scroll = tab
+        .scroll_offset
+        .min(total_lines.saturating_sub(available_height));
     let visible_lines: Vec<ListItem> = lines
         .iter()
         .skip(scroll)
@@ -628,7 +649,11 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::TOP)
                 .title(format!(" 💬 {} ", tab.name))
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .highlight_style(Style::default().bg(Color::DarkGray));
 
@@ -667,7 +692,11 @@ fn render_command_palette(frame: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(" 🔍 {} ", app.palette.filter))
-            .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .title_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .border_style(Style::default().fg(Color::Cyan)),
     );
 
@@ -813,10 +842,8 @@ fn handle_normal_key(app: &mut App, key: KeyEvent) {
             app.input_buffer.pop();
         }
         // Char — append to input buffer
-        KeyCode::Char(c) => {
-            if !key.modifiers.contains(KeyModifiers::CONTROL) {
-                app.input_buffer.push(c);
-            }
+        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.input_buffer.push(c);
         }
         _ => {}
     }
@@ -885,10 +912,7 @@ mod tests {
     fn test_app_new_creates_single_tab() {
         let app = App::new();
         assert_eq!(app.tabs.len(), 1, "expected exactly 1 tab");
-        assert_eq!(
-            app.tabs[0].name, "Chat 1",
-            "expected tab name 'Chat 1'"
-        );
+        assert_eq!(app.tabs[0].name, "Chat 1", "expected tab name 'Chat 1'");
         assert_eq!(
             app.tabs[0].profile.name, "rustacean",
             "expected rustacean profile"
@@ -896,11 +920,7 @@ mod tests {
         assert_eq!(app.active_tab, 0, "active tab should be 0");
         assert!(app.input_buffer.is_empty(), "input buffer should be empty");
         assert!(app.messages.is_empty(), "messages list should be empty");
-        assert_eq!(
-            app.mode,
-            AppMode::Normal,
-            "initial mode should be Normal"
-        );
+        assert_eq!(app.mode, AppMode::Normal, "initial mode should be Normal");
         assert!(!app.should_quit, "should not quit initially");
     }
 
@@ -1026,11 +1046,7 @@ mod tests {
         app.next_tab();
         assert_eq!(app.active_tab, 0, "next should wrap to 0");
         app.prev_tab();
-        assert_eq!(
-            app.active_tab,
-            2,
-            "prev should wrap to last tab"
-        );
+        assert_eq!(app.active_tab, 2, "prev should wrap to last tab");
 
         app.active_tab = 1;
         app.next_tab();
@@ -1124,7 +1140,10 @@ mod tests {
         let mut app = App::new();
 
         let help_result = app.execute_command("/help");
-        assert!(help_result.contains("/profile"), "/help should list commands");
+        assert!(
+            help_result.contains("/profile"),
+            "/help should list commands"
+        );
 
         let profile_result = app.execute_command("/profile");
         assert!(
@@ -1155,7 +1174,10 @@ mod tests {
         app.send_message();
 
         // ~38 chars / 4 ≈ 9 tokens
-        assert!(app.token_count > 0, "token count should be > 0 after sending a message");
+        assert!(
+            app.token_count > 0,
+            "token count should be > 0 after sending a message"
+        );
     }
 
     /// All slash commands are listed.

@@ -78,7 +78,10 @@ fn test_ferris_profile_beginner_friendly() {
     let p = get_profile("ferris").unwrap();
     assert!(!p.forbid_unwrap, "ferris should not forbid unwrap");
     assert!(p.forbid_unsafe, "ferris should forbid unsafe");
-    assert!(!p.enforce_clippy_pedantic, "ferris should not enforce clippy pedantic");
+    assert!(
+        !p.enforce_clippy_pedantic,
+        "ferris should not enforce clippy pedantic"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -156,10 +159,7 @@ fn test_config_empty_toml() {
 fn test_config_profile_name_maps_to_valid_profile() {
     // The 'rustacean' profile should exist and match
     let profile = get_profile("rustacean");
-    assert!(
-        profile.is_some(),
-        "expected 'rustacean' profile to exist"
-    );
+    assert!(profile.is_some(), "expected 'rustacean' profile to exist");
     let p = profile.unwrap();
     assert_eq!(p.emoji, "🚀");
 }
@@ -172,7 +172,10 @@ fn test_profile_and_config_compatibility() {
     let profile = get_profile("strict").unwrap();
 
     // Both express similar safety preferences
-    assert!(cfg.review_enabled, "review should be enabled by default for safety");
+    assert!(
+        cfg.review_enabled,
+        "review should be enabled by default for safety"
+    );
 
     // The strict profile forbids everything
     assert!(profile.forbid_unwrap);

@@ -485,9 +485,7 @@ where
                 // --- Tool call deltas (accumulate by index) ---
                 if let Some(ref tool_calls) = choice.delta.tool_calls {
                     for tc in tool_calls {
-                        let acc = tool_accums
-                            .entry(tc.index)
-                            .or_default();
+                        let acc = tool_accums.entry(tc.index).or_default();
 
                         if let Some(id) = tc.id.as_ref() {
                             acc.id = Some(id.clone());

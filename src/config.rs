@@ -289,7 +289,10 @@ tool_timeout_secs = not_a_number"#,
 
         let result = load();
         // On Unix, reading a directory as a file returns an IO error
-        assert!(result.is_err(), "directory-as-file should produce a ReadFailed error");
+        assert!(
+            result.is_err(),
+            "directory-as-file should produce a ReadFailed error"
+        );
         match result.unwrap_err() {
             ConfigError::ReadFailed { path, .. } => {
                 assert!(path.ends_with(".tua-rs/config.toml"));
@@ -322,7 +325,10 @@ tool_timeout_secs = not_a_number"#,
             source: parse_err,
         };
         let msg = err.to_string();
-        assert!(msg.contains("/test/config.toml"), "msg should contain path: {msg}");
+        assert!(
+            msg.contains("/test/config.toml"),
+            "msg should contain path: {msg}"
+        );
         assert!(
             msg.contains("failed to parse") || msg.contains("test"),
             "msg should contain 'failed to parse': {msg}"

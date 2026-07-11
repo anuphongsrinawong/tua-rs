@@ -92,10 +92,7 @@ pub fn checkpoint(message: &str) -> Option<String> {
     }
 
     // Stage all changes (tracked and untracked).
-    let add_status = Command::new("git")
-        .args(["add", "-A"])
-        .output()
-        .ok()?;
+    let add_status = Command::new("git").args(["add", "-A"]).output().ok()?;
     if !add_status.status.success() {
         return None;
     }
@@ -168,7 +165,11 @@ pub fn last_commit_hash() -> Option<String> {
 
     if output.status.success() {
         let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if hash.is_empty() { None } else { Some(hash) }
+        if hash.is_empty() {
+            None
+        } else {
+            Some(hash)
+        }
     } else {
         None
     }
@@ -249,10 +250,7 @@ mod tests {
         require_git_repo!();
 
         let hash = last_commit_hash();
-        assert!(
-            hash.is_some(),
-            "expected a commit hash in this git repo"
-        );
+        assert!(hash.is_some(), "expected a commit hash in this git repo");
         if let Some(h) = &hash {
             // SHA-1 hashes are 40 hex characters.
             assert_eq!(h.len(), 40, "commit hash should be 40 hex chars: {h}");
@@ -335,10 +333,7 @@ mod tests {
 
         // Create a checkpoint.
         let hash = checkpoint("test checkpoint: test.txt");
-        assert!(
-            hash.is_some(),
-            "checkpoint should succeed in the temp repo"
-        );
+        assert!(hash.is_some(), "checkpoint should succeed in the temp repo");
         let commit_hash = hash.unwrap();
         assert_eq!(commit_hash.len(), 40, "commit hash should be 40 hex chars");
         assert!(

@@ -121,7 +121,11 @@ struct ToolInfo {
 /// Render the full HTML dashboard page with inline dark-theme styles.
 fn render_html(project: &ProjectInfo, build: &BuildStatus, quality: &QualityMetrics) -> String {
     let build_badge_class = if build.success { "success" } else { "failure" };
-    let build_badge_text = if build.success { "✅ PASS" } else { "❌ FAIL" };
+    let build_badge_text = if build.success {
+        "✅ PASS"
+    } else {
+        "❌ FAIL"
+    };
 
     format!(
         r##"<!DOCTYPE html>
@@ -335,11 +339,15 @@ async fn gather_metrics(state: &DashboardState) -> (ProjectInfo, BuildStatus, Qu
         .unwrap_or_else(|_| "unknown".to_string());
 
     // Lines of code — count .rs files via find + wc
-    let loc = run_cmd("sh", &["-c", "find src/ -name '*.rs' -exec cat {} + | wc -l"], &dir)
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0);
+    let loc = run_cmd(
+        "sh",
+        &["-c", "find src/ -name '*.rs' -exec cat {} + | wc -l"],
+        &dir,
+    )
+    .await
+    .ok()
+    .and_then(|s| s.trim().parse::<u64>().ok())
+    .unwrap_or(0);
 
     // Source file count
     let total_files = run_cmd("sh", &["-c", "find src/ -name '*.rs' | wc -l"], &dir)
@@ -349,7 +357,12 @@ async fn gather_metrics(state: &DashboardState) -> (ProjectInfo, BuildStatus, Qu
         .unwrap_or(0);
 
     // Clippy: run with --message-format=json to get structured counts
-    let clippy_output = run_cmd("sh", &["-c", "cargo clippy --message-format=json 2>&1 | tail -20"], &dir).await;
+    let clippy_output = run_cmd(
+        "sh",
+        &["-c", "cargo clippy --message-format=json 2>&1 | tail -20"],
+        &dir,
+    )
+    .await;
 
     let (clippy_warnings, clippy_errors) = if let Ok(out) = clippy_output {
         let warnings = out.matches("warning:").count() as u32;
@@ -360,7 +373,12 @@ async fn gather_metrics(state: &DashboardState) -> (ProjectInfo, BuildStatus, Qu
     };
 
     // Cargo metadata JSON
-    let cargo_meta = run_cmd("cargo", &["metadata", "--no-deps", "--format-version", "1"], &dir).await;
+    let cargo_meta = run_cmd(
+        "cargo",
+        &["metadata", "--no-deps", "--format-version", "1"],
+        &dir,
+    )
+    .await;
 
     let (name, version, workspace_members) = if let Ok(ref meta) = cargo_meta {
         (
@@ -416,17 +434,28 @@ async fn gather_metrics(state: &DashboardState) -> (ProjectInfo, BuildStatus, Qu
     };
 
     // Test counts
-    let test_count = run_cmd("sh", &["-c", "grep -r '#\\[tokio::test\\]\\|#\\[test\\]' src/ tests/ 2>/dev/null | wc -l"], &dir)
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-        .unwrap_or(0);
+    let test_count = run_cmd(
+        "sh",
+        &[
+            "-c",
+            "grep -r '#\\[tokio::test\\]\\|#\\[test\\]' src/ tests/ 2>/dev/null | wc -l",
+        ],
+        &dir,
+    )
+    .await
+    .ok()
+    .and_then(|s| s.trim().parse::<u32>().ok())
+    .unwrap_or(0);
 
-    let doc_test_count = run_cmd("sh", &["-c", "grep -r '/// ```' src/ 2>/dev/null | wc -l"], &dir)
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-        .unwrap_or(0);
+    let doc_test_count = run_cmd(
+        "sh",
+        &["-c", "grep -r '/// ```' src/ 2>/dev/null | wc -l"],
+        &dir,
+    )
+    .await
+    .ok()
+    .and_then(|s| s.trim().parse::<u32>().ok())
+    .unwrap_or(0);
 
     // Current profile — pick the active one
     let profile = crate::profiles::ALL_PROFILES
@@ -545,9 +574,7 @@ mod tests {
         let app = dashboard_router();
 
         // Use axum's test helpers via tower
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
@@ -574,9 +601,7 @@ mod tests {
     async fn test_index_page_returns_html() {
         let app = dashboard_router();
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
@@ -595,7 +620,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let html = resp.text().await.unwrap();
         assert!(html.contains("Tua Agent"), "HTML should mention Tua Agent");
-        assert!(html.contains("#0d1117"), "HTML should include dark theme bg");
+        assert!(
+            html.contains("#0d1117"),
+            "HTML should include dark theme bg"
+        );
         assert!(html.contains("Dashboard"), "HTML should contain dashboard");
     }
 
@@ -604,9 +632,7 @@ mod tests {
     async fn test_status_endpoint() {
         let app = dashboard_router();
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
@@ -624,9 +650,21 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value = resp.json().await.unwrap();
-        assert!(body.get("project").is_some(), "status should have project field");
-        assert!(body.get("build").is_some(), "status should have build field");
-        assert!(body.get("quality").is_some(), "status should have quality field");
-        assert!(body.get("tools").is_some(), "status should have tools field");
+        assert!(
+            body.get("project").is_some(),
+            "status should have project field"
+        );
+        assert!(
+            body.get("build").is_some(),
+            "status should have build field"
+        );
+        assert!(
+            body.get("quality").is_some(),
+            "status should have quality field"
+        );
+        assert!(
+            body.get("tools").is_some(),
+            "status should have tools field"
+        );
     }
 }

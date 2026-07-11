@@ -73,7 +73,9 @@ fn main() -> anyhow::Result<()> {
             std::process::Command::new("cargo").arg("check").status()?;
         }
         Some(Commands::Test) => {
-            std::process::Command::new("cargo").args(["test"]).status()?;
+            std::process::Command::new("cargo")
+                .args(["test"])
+                .status()?;
         }
         Some(Commands::Dashboard) => {
             let rt = tokio::runtime::Runtime::new()?;
@@ -102,16 +104,18 @@ fn main() -> anyhow::Result<()> {
         None => {
             if let Some(ref prompt) = cli.prompt {
                 println!("🦀  Tua Agent RS v0.3.0 — profile: {}", cli.profile);
-                println!("🧠 self-correct={} checkpoint={} review={}", 
-                    !cli.no_self_correct, !cli.no_checkpoint, !cli.no_review);
+                println!(
+                    "🧠 self-correct={} checkpoint={} review={}",
+                    !cli.no_self_correct, !cli.no_checkpoint, !cli.no_review
+                );
                 println!("💬 {}", prompt);
-                
+
                 // Build system prompt
                 let tools = tools::rust_tools();
                 let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
                 let system = prompts::build_rust_system_prompt(&tool_names, &cli.profile);
                 println!("📝 System prompt: {} chars", system.len());
-                
+
                 // Create provider
                 let provider_config = providers::ProviderConfig {
                     api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),
@@ -119,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                     model: cli.model.clone(),
                 };
                 let _provider = providers::OpenAiCompatibleProvider::new(provider_config);
-                
+
                 println!("✅ Agent ready — connect provider and run loop");
             } else {
                 println!("🦀  Tua Agent RS v0.3.0");

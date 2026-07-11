@@ -588,10 +588,7 @@ impl AgentLoop {
                 } else {
                     Some(model_text.clone())
                 };
-                current_messages.push(AgentMessage::assistant(
-                    assistant_opt,
-                    tool_calls.clone(),
-                ));
+                current_messages.push(AgentMessage::assistant(assistant_opt, tool_calls.clone()));
                 current_messages.extend(tool_results.clone());
 
                 // ---------------------------------------------------------
@@ -848,5 +845,49 @@ mod tests {
         assert!(
             matches!(msg, AgentMessage::ToolResult { tool_call_id, output } if tool_call_id == "c1" && output == "output")
         );
+    }
+
+    #[test]
+    fn test_message_user_empty() {
+        let msg = AgentMessage::user("");
+        assert!(matches!(msg, AgentMessage::User { text } if text.is_empty()));
+    }
+
+    #[test]
+    fn test_config_defaults() {
+        let cfg = AgentHarnessConfig::default();
+        assert!(cfg.self_correction);
+        assert_eq!(cfg.max_self_corrections, 3);
+    }
+
+    #[test]
+    fn test_detect_rust_edits_accepts_messages() {
+        // detect_rust_edits API — basic smoke test
+        let result = detect_rust_edits(&[]);
+        assert!(!result); // empty = no edits
+    }
+
+    #[test]
+    fn test_agent_event_variants() {
+        assert!(matches!(AgentEvent::TextDelta("hi".into()), AgentEvent::TextDelta(_)));
+        assert!(matches!(AgentEvent::ThinkingDelta("...".into()), AgentEvent::ThinkingDelta(_)));
+        assert!(matches!(AgentEvent::Done, AgentEvent::Done));
+        assert!(matches!(AgentEvent::Error("oops".into()), AgentEvent::Error(_)));
+    }
+
+    #[test]
+    fn test_cargo_check_non_existent_dir() {
+        // run_cargo_check is async — tested in tokio tests above
+    }
+
+    #[test]
+    fn test_agent_tool_call_struct() {
+        let tc = AgentToolCall {
+            id: "call-1".into(),
+            name: "cargo".into(),
+            arguments: serde_json::json!({"subcommand": "check"}),
+        };
+        assert_eq!(tc.id, "call-1");
+        assert_eq!(tc.name, "cargo");
     }
 }

@@ -21,17 +21,19 @@ pub fn review_edits(_files: &[String], cwd: Option<&str>) -> Vec<ReviewFinding> 
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    
+
     let output = match cmd.output() {
         Ok(o) => o,
-        Err(_) => return vec![ReviewFinding {
-            severity: "info".into(),
-            file: "".into(),
-            line: 0,
-            message: "cargo clippy not available — skipping review".into(),
-        }],
+        Err(_) => {
+            return vec![ReviewFinding {
+                severity: "info".into(),
+                file: "".into(),
+                line: 0,
+                message: "cargo clippy not available — skipping review".into(),
+            }]
+        }
     };
-    
+
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_clippy_output(&stderr)
 }
@@ -41,25 +43,25 @@ pub fn review_edits(_files: &[String], cwd: Option<&str>) -> Vec<ReviewFinding> 
 /// `src/lib.rs:7:5: warning: ...`
 fn parse_clippy_output(output: &str) -> Vec<ReviewFinding> {
     let mut findings = Vec::new();
-    
+
     for line in output.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        
+
         // Parse pattern: "file:line:col: severity: message"
         let parts: Vec<&str> = line.splitn(5, ':').collect();
         if parts.len() < 5 {
             continue;
         }
-        
+
         let file = parts[0].trim().to_string();
         let line_num: u32 = parts[1].trim().parse().unwrap_or(0);
         // parts[2] is column — skip
         let severity = parts[3].trim().to_string();
         let message = parts[4].trim().to_string();
-        
+
         if severity == "error" || severity == "warning" || severity == "info" {
             findings.push(ReviewFinding {
                 severity,
@@ -69,7 +71,7 @@ fn parse_clippy_output(output: &str) -> Vec<ReviewFinding> {
             });
         }
     }
-    
+
     findings
 }
 
@@ -78,15 +80,15 @@ pub fn format_review(findings: &[ReviewFinding]) -> String {
     if findings.is_empty() {
         return String::from("✅ Review: no issues found");
     }
-    
+
     let error_count = findings.iter().filter(|f| f.severity == "error").count();
     let warn_count = findings.iter().filter(|f| f.severity == "warning").count();
-    
+
     let mut out = format!(
         "🔍 Review: {} errors, {} warnings\n",
         error_count, warn_count
     );
-    
+
     for f in findings.iter().take(10) {
         let icon = match f.severity.as_str() {
             "error" => "❌",
@@ -98,11 +100,11 @@ pub fn format_review(findings: &[ReviewFinding]) -> String {
             icon, f.file, f.line, f.message
         ));
     }
-    
+
     if findings.len() > 10 {
         out.push_str(&format!("  ... and {} more\n", findings.len() - 10));
     }
-    
+
     out
 }
 
@@ -131,7 +133,8 @@ mod tests {
 
     #[test]
     fn test_parse_multiple_lines() {
-        let output = "src/a.rs:1:1: error: E001\nsrc/b.rs:2:2: warning: W002\nsrc/c.rs:3:3: info: I003\n";
+        let output =
+            "src/a.rs:1:1: error: E001\nsrc/b.rs:2:2: warning: W002\nsrc/c.rs:3:3: info: I003\n";
         let findings = parse_clippy_output(output);
         assert_eq!(findings.len(), 3);
     }
@@ -144,14 +147,12 @@ mod tests {
 
     #[test]
     fn test_format_with_findings() {
-        let findings = vec![
-            ReviewFinding {
-                severity: "error".into(),
-                file: "main.rs".into(),
-                line: 10,
-                message: "bad code".into(),
-            },
-        ];
+        let findings = vec![ReviewFinding {
+            severity: "error".into(),
+            file: "main.rs".into(),
+            line: 10,
+            message: "bad code".into(),
+        }];
         let result = format_review(&findings);
         assert!(result.contains("❌"));
         assert!(result.contains("bad code"));
