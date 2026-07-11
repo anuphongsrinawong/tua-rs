@@ -71,16 +71,14 @@ pub enum SessionError {
 
     /// The session file is empty (missing metadata line).
     #[error("session file `{path}` is empty")]
-    EmptyFile {
-        path: PathBuf,
-    },
+    EmptyFile { path: PathBuf },
 
     /// The session metadata (first line) was valid JSON but did not contain
     /// the expected session fields.
-    #[error("session file `{path}` is missing metadata (first line is not a valid session header)")]
-    MissingMetadata {
-        path: PathBuf,
-    },
+    #[error(
+        "session file `{path}` is missing metadata (first line is not a valid session header)"
+    )]
+    MissingMetadata { path: PathBuf },
 }
 
 /// Convenience alias for `Result<T, SessionError>`.
@@ -179,8 +177,8 @@ impl Session {
         let mut contents = String::new();
 
         // Line 1: metadata
-        let meta_json = serde_json::to_string(&self.meta)
-            .map_err(|e| SessionError::ParseFailed {
+        let meta_json =
+            serde_json::to_string(&self.meta).map_err(|e| SessionError::ParseFailed {
                 path: path.to_path_buf(),
                 line: 0,
                 source: e,
@@ -227,20 +225,17 @@ impl Session {
     /// ```
     pub fn load(path: impl AsRef<Path>) -> SessionResult<Self> {
         let path = path.as_ref();
-        let content =
-            std::fs::read_to_string(path).map_err(|source| SessionError::ReadFailed {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        let content = std::fs::read_to_string(path).map_err(|source| SessionError::ReadFailed {
+            path: path.to_path_buf(),
+            source,
+        })?;
 
         let mut lines = content.lines();
 
         // Line 1: metadata
-        let meta_line = lines
-            .next()
-            .ok_or_else(|| SessionError::EmptyFile {
-                path: path.to_path_buf(),
-            })?;
+        let meta_line = lines.next().ok_or_else(|| SessionError::EmptyFile {
+            path: path.to_path_buf(),
+        })?;
 
         let meta: SessionMeta =
             serde_json::from_str(meta_line).map_err(|source| SessionError::ParseFailed {
@@ -318,9 +313,7 @@ pub fn list_sessions(dir: impl AsRef<Path>) -> SessionResult<Vec<SessionSummary>
             source,
         })?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry.path().extension().map_or(false, |ext| ext == "jsonl")
-        })
+        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "jsonl"))
         .collect();
 
     // Sort by file name (which is the UUID) for deterministic ordering.
@@ -380,10 +373,13 @@ fn summarize_session_file(path: &Path) -> SessionResult<SessionSummary> {
     // We already consumed the first line; count the rest.
     let mut message_count = 0usize;
     let mut line = String::new();
-    while reader.read_line(&mut line).map_err(|source| SessionError::ReadFailed {
-        path: path.to_path_buf(),
-        source,
-    })? > 0
+    while reader
+        .read_line(&mut line)
+        .map_err(|source| SessionError::ReadFailed {
+            path: path.to_path_buf(),
+            source,
+        })?
+        > 0
     {
         if !line.trim().is_empty() {
             message_count += 1;
@@ -441,10 +437,7 @@ fn iso_now() -> String {
     // the format is: 2026-07-12T10:00:00Z
     // We compute year/month/day/hour/minute/second from the Unix timestamp.
     let (y, mo, d, h, mi, s) = seconds_to_datetime(secs);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, mo, d, h, mi, s
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, mi, s)
 }
 
 /// Convert a Unix timestamp (seconds since epoch) to UTC date/time fields.
@@ -564,7 +557,10 @@ mod tests {
                 arguments: serde_json::json!({"path": "src/fib.rs", "content": "..."}),
             }],
         ));
-        session.push_message(AgentMessage::tool_result("call_1", "File written successfully"));
+        session.push_message(AgentMessage::tool_result(
+            "call_1",
+            "File written successfully",
+        ));
         session.push_message(AgentMessage::assistant(
             Some("Done! I wrote the file.".into()),
             vec![],
@@ -584,14 +580,20 @@ mod tests {
         }
         match &loaded.messages[1] {
             AgentMessage::Assistant { text, tool_calls } => {
-                assert_eq!(text.as_deref(), Some("Here's a Rust Fibonacci implementation:"));
+                assert_eq!(
+                    text.as_deref(),
+                    Some("Here's a Rust Fibonacci implementation:")
+                );
                 assert_eq!(tool_calls.len(), 1);
                 assert_eq!(tool_calls[0].name, "write_file");
             }
             other => panic!("expected Assistant, got {other:?}"),
         }
         match &loaded.messages[2] {
-            AgentMessage::ToolResult { tool_call_id, output } => {
+            AgentMessage::ToolResult {
+                tool_call_id,
+                output,
+            } => {
                 assert_eq!(tool_call_id, "call_1");
                 assert_eq!(output, "File written successfully");
             }
@@ -727,7 +729,11 @@ mod tests {
         session.save(&path).unwrap();
 
         // Append blank lines
-        fs::write(&path, format!("{}\n\n\n", fs::read_to_string(&path).unwrap())).unwrap();
+        fs::write(
+            &path,
+            format!("{}\n\n\n", fs::read_to_string(&path).unwrap()),
+        )
+        .unwrap();
 
         let loaded = Session::load(&path).unwrap();
         assert_eq!(loaded.messages.len(), 1);

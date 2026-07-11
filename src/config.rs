@@ -258,7 +258,10 @@ mod tests {
         assert_eq!(anthropic.model.as_deref(), Some("claude-sonnet-4-20250514"));
 
         let ollama = cfg.provider_settings("ollama").unwrap();
-        assert_eq!(ollama.base_url.as_deref(), Some("http://localhost:11434/v1"));
+        assert_eq!(
+            ollama.base_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
         assert_eq!(ollama.model.as_deref(), Some("llama3"));
     }
 

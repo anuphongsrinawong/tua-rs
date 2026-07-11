@@ -84,10 +84,7 @@ impl MockProvider {
     /// This is the simplest way to test basic text rendering in the TUI.
     pub fn with_text(text: &str) -> Self {
         Self {
-            events: vec![
-                AgentEvent::TextDelta(text.to_string()),
-                AgentEvent::Done,
-            ],
+            events: vec![AgentEvent::TextDelta(text.to_string()), AgentEvent::Done],
             delay: Duration::from_millis(50),
         }
     }
@@ -135,10 +132,7 @@ impl MockProvider {
     /// Create a provider that always **errors** immediately.
     pub fn with_error(error: &str) -> Self {
         Self {
-            events: vec![
-                AgentEvent::Error(error.to_string()),
-                AgentEvent::Done,
-            ],
+            events: vec![AgentEvent::Error(error.to_string()), AgentEvent::Done],
             delay: Duration::from_millis(10),
         }
     }
@@ -298,7 +292,9 @@ mod tests {
 
         assert_eq!(events.len(), 5);
         assert!(matches!(&events[1], AgentEvent::ToolCall(tc) if tc.name == "cargo"));
-        assert!(matches!(&events[2], AgentEvent::ToolResult { output, .. } if output == "Compilation successful"));
+        assert!(
+            matches!(&events[2], AgentEvent::ToolResult { output, .. } if output == "Compilation successful")
+        );
         assert!(matches!(&events[4], AgentEvent::Done));
     }
 
@@ -358,7 +354,10 @@ mod tests {
             .delay(Duration::from_millis(5))
             .thinking_delta("Analyzing…")
             .text_delta("Result: ")
-            .tool_call("rustc", serde_json::json!({"action": "check", "target": "src/main.rs"}))
+            .tool_call(
+                "rustc",
+                serde_json::json!({"action": "check", "target": "src/main.rs"}),
+            )
             .tool_result("call_1", "No errors")
             .text_delta("\nDone!")
             .done()

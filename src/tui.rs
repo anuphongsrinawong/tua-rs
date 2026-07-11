@@ -153,7 +153,10 @@ impl App {
             .or_else(|| profiles::get_profile(&session.meta.profile))
             .unwrap_or(&profiles::ALL_PROFILES[2]);
 
-        let mut tab = Tab::new(format!("Session {}", &session.meta.id.to_string()[..8]), profile);
+        let mut tab = Tab::new(
+            format!("Session {}", &session.meta.id.to_string()[..8]),
+            profile,
+        );
         tab.messages = session.messages;
 
         let mut app = Self {

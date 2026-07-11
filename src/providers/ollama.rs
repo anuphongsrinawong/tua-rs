@@ -18,11 +18,11 @@ use futures::Stream;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use tracing::debug;
 
-use crate::agent::{
-    AgentError, AgentEvent, AgentMessage, AgentResult, AgentTool, ModelProvider,
-};
+use crate::agent::{AgentError, AgentEvent, AgentMessage, AgentResult, AgentTool, ModelProvider};
 
-use super::openai_compatible::{agent_messages_to_wire, agent_tools_to_wire, parse_sse, ChatRequest};
+use super::openai_compatible::{
+    agent_messages_to_wire, agent_tools_to_wire, parse_sse, ChatRequest,
+};
 use super::ProviderConfig;
 
 // ---------------------------------------------------------------------------
@@ -203,7 +203,13 @@ mod tests {
 
     #[test]
     fn test_ollama_model_variants() {
-        let models = ["llama3", "codellama", "mistral", "mixtral", "deepseek-coder"];
+        let models = [
+            "llama3",
+            "codellama",
+            "mistral",
+            "mixtral",
+            "deepseek-coder",
+        ];
         for model in models {
             let config = ProviderConfig::new("ollama", "", None, model);
             let provider = OllamaProvider::new(config);

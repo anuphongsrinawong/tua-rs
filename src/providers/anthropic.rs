@@ -56,10 +56,7 @@ impl AnthropicProvider {
         }
 
         // Required by Anthropic API.
-        default_headers.insert(
-            "anthropic-version",
-            HeaderValue::from_static("2023-06-01"),
-        );
+        default_headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
 
         default_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
@@ -212,23 +209,16 @@ struct AnthropicToolDef {
 #[serde(tag = "type")]
 enum AnthropicSseEvent {
     #[serde(rename = "message_start")]
-    MessageStart {
-        message: AnthropicMessageStart,
-    },
+    MessageStart { message: AnthropicMessageStart },
     #[serde(rename = "content_block_start")]
     ContentBlockStart {
         index: usize,
         content_block: AnthropicContentStart,
     },
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta {
-        index: usize,
-        delta: AnthropicDelta,
-    },
+    ContentBlockDelta { index: usize, delta: AnthropicDelta },
     #[serde(rename = "content_block_stop")]
-    ContentBlockStop {
-        index: usize,
-    },
+    ContentBlockStop { index: usize },
     #[serde(rename = "message_delta")]
     MessageDelta {
         #[allow(dead_code)]
@@ -489,10 +479,7 @@ where
                         "text_delta" => {
                             if let Some(text) = delta.text {
                                 block.text.push_str(&text);
-                                if tx
-                                    .unbounded_send(AgentEvent::TextDelta(text))
-                                    .is_err()
-                                {
+                                if tx.unbounded_send(AgentEvent::TextDelta(text)).is_err() {
                                     return Ok(());
                                 }
                             }
@@ -515,19 +502,15 @@ where
                                 if let Some(id) = block.id.as_ref() {
                                     if let Some(name) = block.name.as_ref() {
                                         let args: serde_json::Value =
-                                            serde_json::from_str(&block.partial_json)
-                                                .unwrap_or(serde_json::Value::Object(
-                                                    serde_json::Map::new(),
-                                                ));
+                                            serde_json::from_str(&block.partial_json).unwrap_or(
+                                                serde_json::Value::Object(serde_json::Map::new()),
+                                            );
                                         let call = AgentToolCall {
                                             id: id.clone(),
                                             name: name.clone(),
                                             arguments: args,
                                         };
-                                        if tx
-                                            .unbounded_send(AgentEvent::ToolCall(call))
-                                            .is_err()
-                                        {
+                                        if tx.unbounded_send(AgentEvent::ToolCall(call)).is_err() {
                                             return Ok(());
                                         }
                                     }
@@ -541,12 +524,12 @@ where
                     // Flush any tool call from the completed block.
                     if let Some(block) = blocks.get(index) {
                         if block.block_type.as_deref() == Some("tool_use") {
-                            if let (Some(id), Some(name)) = (block.id.as_ref(), block.name.as_ref()) {
-                                let args: serde_json::Value =
-                                    serde_json::from_str(&block.partial_json)
-                                        .unwrap_or(serde_json::Value::Object(
-                                            serde_json::Map::new(),
-                                        ));
+                            if let (Some(id), Some(name)) = (block.id.as_ref(), block.name.as_ref())
+                            {
+                                let args: serde_json::Value = serde_json::from_str(
+                                    &block.partial_json,
+                                )
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                                 let call = AgentToolCall {
                                     id: id.clone(),
                                     name: name.clone(),
@@ -726,10 +709,7 @@ mod tests {
 
     #[test]
     fn test_anthropic_assistant_empty_text() {
-        let messages = vec![AgentMessage::assistant(
-            Some("".into()),
-            vec![],
-        )];
+        let messages = vec![AgentMessage::assistant(Some("".into()), vec![])];
 
         let (_, wire) = agent_messages_to_anthropic(messages, "".into());
         // Empty text without tool calls — still produces a message with no content?
@@ -758,8 +738,7 @@ mod tests {
         block.partial_json.push_str("{\"location\": \"");
         block.partial_json.push_str("NYC\"}");
 
-        let args: serde_json::Value =
-            serde_json::from_str(&block.partial_json).unwrap();
+        let args: serde_json::Value = serde_json::from_str(&block.partial_json).unwrap();
         assert_eq!(args, serde_json::json!({"location": "NYC"}));
     }
 }

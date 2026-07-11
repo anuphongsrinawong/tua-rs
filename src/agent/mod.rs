@@ -665,6 +665,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     /// A mock provider that echoes a fixed response.
+    #[derive(Debug)]
     struct EchoProvider {
         response: Vec<AgentEvent>,
     }
@@ -869,10 +870,19 @@ mod tests {
 
     #[test]
     fn test_agent_event_variants() {
-        assert!(matches!(AgentEvent::TextDelta("hi".into()), AgentEvent::TextDelta(_)));
-        assert!(matches!(AgentEvent::ThinkingDelta("...".into()), AgentEvent::ThinkingDelta(_)));
+        assert!(matches!(
+            AgentEvent::TextDelta("hi".into()),
+            AgentEvent::TextDelta(_)
+        ));
+        assert!(matches!(
+            AgentEvent::ThinkingDelta("...".into()),
+            AgentEvent::ThinkingDelta(_)
+        ));
         assert!(matches!(AgentEvent::Done, AgentEvent::Done));
-        assert!(matches!(AgentEvent::Error("oops".into()), AgentEvent::Error(_)));
+        assert!(matches!(
+            AgentEvent::Error("oops".into()),
+            AgentEvent::Error(_)
+        ));
     }
 
     #[test]
