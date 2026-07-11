@@ -1,3 +1,3 @@
-//! AI model provider implementations.
-
 pub mod openai_compatible;
+
+pub use openai_compatible::{OpenAiCompatibleProvider, ProviderConfig};
