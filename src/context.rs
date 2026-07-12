@@ -21,17 +21,15 @@ pub fn summarize_session(content: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
         // Keep only lines with actionable info
-        if trimmed.starts_with("## ") || trimmed.starts_with("### ") {
-            summary.push_str(line);
-            summary.push('\n');
-        } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-            summary.push_str(line);
-            summary.push('\n');
-        } else if trimmed.starts_with("1. ")
+        let is_actionable = trimmed.starts_with("## ")
+            || trimmed.starts_with("### ")
+            || trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || trimmed.starts_with("1. ")
             || trimmed.starts_with("✅")
             || trimmed.starts_with("❌")
-            || trimmed.starts_with("🔥")
-        {
+            || trimmed.starts_with("🔥");
+        if is_actionable {
             summary.push_str(line);
             summary.push('\n');
         }
