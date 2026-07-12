@@ -299,10 +299,14 @@ pub struct SessionSummary {
 ///
 /// ```no_run
 /// use tua_rs::session::list_sessions;
+/// use tua_rs::session::SessionResult;
 ///
-/// let summaries = list_sessions("/home/user/.tua-rs/sessions");
-/// for s in &summaries {
-///     println!("{} — {} ({} messages)", s.id, s.profile, s.message_count);
+/// fn example() -> SessionResult<()> {
+///     let summaries = list_sessions("/home/user/.tua-rs/sessions")?;
+///     for s in &summaries {
+///         println!("{} — {} ({} messages)", s.id, s.profile, s.message_count);
+///     }
+///     Ok(())
 /// }
 /// ```
 pub fn list_sessions(dir: impl AsRef<Path>) -> SessionResult<Vec<SessionSummary>> {
