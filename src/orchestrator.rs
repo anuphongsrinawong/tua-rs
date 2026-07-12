@@ -3,6 +3,7 @@
 //! The orchestrator takes a high-level task description, splits it into independent subtasks,
 //! analyzes which files each subtask touches, and spawns parallel or serial worker agents.
 
+use crate::context;
 use std::collections::HashSet;
 use std::process::Command;
 use std::time::Instant;
@@ -222,70 +223,51 @@ fn run_subtask(task: &SubTask) -> SubTaskResult {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
     let tua_project = format!("{home}/tua-agent");
 
-    // ── Smart Context Selector ──
-    // Strategy: include the most relevant knowledge without overflowing context window.
-    // Priority: PROJECT.md > rules/ > error match > recent sessions.
-    let mut context = String::new();
-
-    // 1. PROJECT.md — always (project structure, never changes)
-    if let Ok(ctx) = std::fs::read_to_string("PROJECT.md") {
-        context.push_str(&format!("## Project\n{ctx}\n\n"));
-    }
-
-    // 2. Rules — always (small, essential, rarely changes)
+    // ── Smart Context Engine (Levels 2+4+5+6+7) ──
+    // Uses all 5 levels to produce a compressed, relevant context
+    // that never overflows the model's context window.
     let vault = format!("{home}/.tua-rs/vault");
-    for rule in &["rules/rust-do.md", "rules/rust-dont.md"] {
-        if let Ok(content) = std::fs::read_to_string(format!("{vault}/{rule}")) {
-            context.push_str(&format!("## {rule}\n{content}\n\n"));
-        }
-    }
-
-    // 3. Error match — only if task mentions an error code like E0308
-    if let Ok(err_dir) = std::fs::read_dir(format!("{vault}/errors")) {
-        for entry in err_dir.flatten() {
-            let path = entry.path();
-            let fname = path.file_stem().unwrap_or_default().to_string_lossy();
-            let fname_str: &str = &fname;
-            if task.description.contains(fname_str) || task.prompt.contains(fname_str) {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    context.push_str(&format!("## errors/{fname}\n{content}\n\n"));
-                }
-            }
-        }
-    }
-
-    // 4. Recent sessions — last 3 only (auto-pruned)
-    const MAX_SESSION_FILES: usize = 3;
-    let sessions_dir = format!("{vault}/sessions");
-    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
-        let mut files: Vec<_> = entries
-            .flatten()
+    
+    // Load raw materials
+    let project_md = std::fs::read_to_string("PROJECT.md").unwrap_or_default();
+    let rules: Vec<String> = ["rules/rust-do.md", "rules/rust-dont.md"]
+        .iter()
+        .filter_map(|r| std::fs::read_to_string(format!("{vault}/{r}")).ok())
+        .collect();
+    
+    // Level 5: keyword-matched errors
+    let error_matches: Vec<String> = if let Ok(err_dir) = std::fs::read_dir(format!("{vault}/errors")) {
+        err_dir.flatten()
+            .filter(|e| {
+                let fname = e.path().file_stem().unwrap_or_default().to_string_lossy().into_owned();
+                task.description.contains(&fname) || task.prompt.contains(&fname)
+            })
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .collect()
+    } else { vec![] };
+    
+    // Level 2: summarized recent sessions
+    let sessions: Vec<String> = if let Ok(sess_dir) = std::fs::read_dir(format!("{vault}/sessions")) {
+        let mut files: Vec<_> = sess_dir.flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
             .collect();
-        files.sort_by_key(|e| e.file_name()); // sort by date (yyyy-mm-dd.md)
-        for entry in files.iter().rev().take(MAX_SESSION_FILES) {
-            if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                context.push_str(&format!("## sessions/{name}\n{content}\n\n"));
-            }
-        }
-    }
-
-    // 5. Token budget guard: if >200KB (~50K tokens), truncate sessions first
-    const MAX_CONTEXT_CHARS: usize = 200_000;
-    if context.len() > MAX_CONTEXT_CHARS {
-        // Find last "## sessions/" marker and cut there
-        if let Some(pos) = context.rfind("## sessions/") {
-            context.truncate(pos);
-            context.push_str("## sessions/ (older sessions truncated for context budget)\n");
-        }
-    }
-
-    let prompt = if context.is_empty() {
-        task.prompt.clone()
-    } else {
-        format!("{context}\n---\n\nTask:\n{}", task.prompt)
-    };
+        files.sort_by_key(|e| e.file_name());
+        files.iter().rev().take(3)
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .collect()
+    } else { vec![] };
+    
+    // Level 6+4: compress for worker (orchestrator summarizes, module chunking)
+    let context = context::compress_for_worker(
+        &task.prompt,
+        &project_md,
+        &rules,
+        &error_matches,
+        &sessions,
+        50_000, // ~12.5K tokens — safe for all models
+    );
+    
+    let prompt = format!("{context}\n\nTask:\n{}", task.prompt);
 
     let output = Command::new("uv")
         .args(["run", "--project", &tua_project, "tua", "-p", &prompt])
