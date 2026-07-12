@@ -207,6 +207,7 @@ struct AnthropicToolDef {
 /// Top-level SSE event from Anthropic.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 enum AnthropicSseEvent {
     #[serde(rename = "message_start")]
     MessageStart { message: AnthropicMessageStart },
@@ -246,6 +247,7 @@ struct AnthropicMessageStart {
 
 /// Start of a new content block.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AnthropicContentStart {
     #[serde(rename = "type")]
     block_type: String,

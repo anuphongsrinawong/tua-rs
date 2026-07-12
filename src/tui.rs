@@ -501,11 +501,13 @@ use ratatui::backend::CrosstermBackend;
 /// A guard that restores terminal settings when dropped.
 pub struct TerminalGuard;
 
+/// Return type for [`TerminalGuard::enter`].
+type TuiInitResult =
+    Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>), Box<dyn std::error::Error>>;
+
 impl TerminalGuard {
     /// Enter raw mode and set up the terminal for the TUI.
-    pub fn enter(
-    ) -> Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>), Box<dyn std::error::Error>>
-    {
+    pub fn enter() -> TuiInitResult {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(
             std::io::stdout(),
