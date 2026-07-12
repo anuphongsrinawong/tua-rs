@@ -27,6 +27,8 @@ pub fn rust_tools() -> Vec<AgentTool> {
         rustc_explain_tool(),
         grep_tool(),
         cargo_add_tool(),
+        cargo_expand_tool(),
+        code_coverage_tool(),
     ]
 }
 
@@ -789,6 +791,82 @@ fn cargo_add_tool() -> AgentTool {
 // ---------------------------------------------------------------------------
 // Executor helpers
 // ---------------------------------------------------------------------------
+
+// ── Cargo Expand Tool ────────────────────────────────────────────────
+
+fn cargo_expand_tool() -> AgentTool {
+    AgentTool::new(
+        "cargo_expand",
+        "Expand Rust macros to see the actual generated code. Useful for debugging proc-macros, derive macros, or understanding what code #[tokio::main] generates. Requires `cargo-expand` installed.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "module": {
+                    "type": "string",
+                    "description": "Module or item to expand (e.g., 'my_module', 'my_module::my_function', 'src/main.rs')"
+                },
+                "themes": {
+                    "type": "boolean",
+                    "description": "Expand with theme/test expansion"
+                }
+            },
+            "required": ["module"]
+        }),
+        make_executor("cargo_expand", |args| {
+            let module = args["module"].as_str().unwrap_or("").to_string();
+            let themes = args.get("themes").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            Box::pin(async move {
+                let mut cmd = tokio::process::Command::new("cargo");
+                cmd.arg("expand");
+                if themes { cmd.arg("--themes"); }
+                cmd.arg(&module);
+                run_cmd_output(&mut cmd).await
+            })
+        }),
+    )
+}
+
+// ── Code Coverage Tool ───────────────────────────────────────────────
+
+fn code_coverage_tool() -> AgentTool {
+    AgentTool::new(
+        "coverage",
+        "Measure Rust code coverage using cargo-llvm-cov. Shows which lines are tested and which are not. Use this after writing tests to verify coverage.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["summary", "json", "html", "lcov"],
+                    "description": "Output format: summary (text), json (structured), html (report), lcov (CI)"
+                },
+                "include_tests": {
+                    "type": "boolean",
+                    "description": "Include test code in coverage report"
+                }
+            },
+            "required": []
+        }),
+        make_executor("coverage", |args| {
+            let format = args.get("format").and_then(|v| v.as_str()).unwrap_or("summary").to_string();
+            let include_tests = args.get("include_tests").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            Box::pin(async move {
+                let mut cmd = tokio::process::Command::new("cargo");
+                cmd.arg("llvm-cov");
+                match format.as_str() {
+                    "json" => { cmd.arg("--json"); }
+                    "html" => { cmd.arg("--html"); }
+                    "lcov" => { cmd.arg("--lcov"); }
+                    _ => { /* summary is default */ }
+                }
+                if !include_tests { cmd.arg("--ignore-filename-regex").arg("tests/"); }
+                run_cmd_output(&mut cmd).await
+            })
+        }),
+    )
+}
 
 /// Run a [`tokio::process::Command`] and capture stdout/stderr.
 ///
