@@ -192,10 +192,13 @@ impl Session {
     /// # Examples
     ///
     /// ```no_run
-    /// use tua_rs::session::Session;
+    /// use tua_rs::session::{Session, SessionResult};
     ///
-    /// let mut session = Session::new("rustacean", "deepseek/deepseek-v4-flash");
-    /// session.save("/tmp/test-session.jsonl").unwrap();
+    /// fn example() -> SessionResult<()> {
+    ///     let mut session = Session::new("rustacean", "deepseek/deepseek-v4-flash");
+    ///     session.save("/tmp/test-session.jsonl")?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn save(&self, path: impl AsRef<Path>) -> SessionResult<()> {
         let path = path.as_ref();
@@ -243,10 +246,13 @@ impl Session {
     /// # Examples
     ///
     /// ```no_run
-    /// use tua_rs::session::Session;
+    /// use tua_rs::session::{Session, SessionResult};
     ///
-    /// let session = Session::load("/tmp/test-session.jsonl").unwrap();
-    /// println!("Loaded session {} with {} messages", session.meta.id, session.messages.len());
+    /// fn example() -> SessionResult<()> {
+    ///     let session = Session::load("/tmp/test-session.jsonl")?;
+    ///     println!("Loaded session {} with {} messages", session.meta.id, session.messages.len());
+    ///     Ok(())
+    /// }
     /// ```
     pub fn load(path: impl AsRef<Path>) -> SessionResult<Self> {
         let path = path.as_ref();

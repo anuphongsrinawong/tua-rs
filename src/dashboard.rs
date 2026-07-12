@@ -543,11 +543,17 @@ fn chrono_formatted() -> String {
 /// # Example
 ///
 /// ```ignore
+/// // Idiomatic usage: propagate errors with `?` instead of unwrapping.
 /// use dashboard::dashboard_router;
+/// use std::error::Error;
 ///
-/// let app = dashboard_router();
-/// let listener = tokio::net::TcpListener::bind("0.0.0.0:8765").await.unwrap();
-/// axum::serve(listener, app).await.unwrap();
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn Error>> {
+///     let app = dashboard_router();
+///     let listener = tokio::net::TcpListener::bind("0.0.0.0:8765").await?;
+///     axum::serve(listener, app).await?;
+///     Ok(())
+/// }
 /// ```
 pub fn dashboard_router() -> Router {
     let state = DashboardState::new();

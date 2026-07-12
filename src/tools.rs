@@ -5,7 +5,7 @@
 //!
 //! Based on Tua Agent v0.0.2 Python tools (14 tools).
 
-use crate::agent::{AgentError, AgentTool, ToolExecutor};
+use crate::agent::{AgentError, AgentResult, AgentTool, ToolExecutor};
 use std::sync::Arc;
 
 /// Create the standard Rust tool set (14 tools matching Python tua-agent).
@@ -57,10 +57,13 @@ fn cargo_tool() -> AgentTool {
             "required": ["subcommand"]
         }),
         make_executor("cargo", |args| {
-            let sub = args["subcommand"]
+            let sub_result: crate::agent::AgentResult<String> = args["subcommand"]
                 .as_str()
-                .unwrap_or("check")
-                .to_string();
+                .map(|s| s.to_string())
+                .ok_or_else(|| crate::agent::AgentError::InvalidToolCall {
+                    tool_name: "cargo".into(),
+                    message: "missing required field 'subcommand'".into(),
+                });
             let extra: Vec<String> = args["args"]
                 .as_array()
                 .map(|a| {
@@ -71,6 +74,7 @@ fn cargo_tool() -> AgentTool {
                 .unwrap_or_default();
             let cwd = args["cwd"].as_str().map(|s| s.to_string());
             Box::pin(async move {
+                let sub = sub_result?;
                 let mut cmd = tokio::process::Command::new("cargo");
                 cmd.arg(&sub);
                 if !extra.is_empty() {
@@ -105,9 +109,16 @@ fn rustc_tool() -> AgentTool {
             "required": ["action"]
         }),
         make_executor("rustc", |args| {
-            let action = args["action"].as_str().unwrap_or("version").to_string();
+            let action_result = args["action"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| AgentError::InvalidToolCall {
+                    tool_name: "rustc".into(),
+                    message: "missing required field 'action'".into(),
+                });
             let target = args["target"].as_str().map(|s| s.to_string());
             Box::pin(async move {
+                let action = action_result?;
                 let mut cmd = tokio::process::Command::new("rustc");
                 match action.as_str() {
                     "explain" => {
@@ -118,7 +129,10 @@ fn rustc_tool() -> AgentTool {
                         if let Some(path) = target {
                             cmd.arg(path);
                         } else {
-                            return Err("rustc check requires a 'target' file path".into());
+                            return Err(AgentError::InvalidToolCall {
+                                tool_name: "rustc".into(),
+                                message: "'check' action requires a 'target' file path".into(),
+                            });
                         }
                     }
                     "version" => {
@@ -130,7 +144,12 @@ fn rustc_tool() -> AgentTool {
                             cmd.arg(path);
                         }
                     }
-                    _ => return Err(format!("unknown rustc action: {action}")),
+                    _ => {
+                        return Err(AgentError::InvalidToolCall {
+                            tool_name: "rustc".into(),
+                            message: format!("unknown rustc action: {action}"),
+                        })
+                    }
                 }
                 run_cmd_output(&mut cmd).await
             })
@@ -270,9 +289,16 @@ fn rustup_tool() -> AgentTool {
             "required": ["action"]
         }),
         make_executor("rustup", |args| {
-            let action = args["action"].as_str().unwrap_or("show").to_string();
+            let action_result = args["action"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| AgentError::InvalidToolCall {
+                    tool_name: "rustup".into(),
+                    message: "missing required field 'action'".into(),
+                });
             let target = args["target"].as_str().map(|s| s.to_string());
             Box::pin(async move {
+                let action = action_result?;
                 let mut cmd = tokio::process::Command::new("rustup");
                 cmd.arg(&action);
                 if let Some(t) = target {
@@ -377,7 +403,7 @@ fn cargo_deny_tool() -> AgentTool {
             let check = args["check"]
                 .as_str()
                 .unwrap_or("advisories")
-                .to_string();
+                .to_string();  // Optional — schema declares default "advisories"
             Box::pin(async move {
                 let mut cmd = tokio::process::Command::new("cargo");
                 cmd.arg("deny");
@@ -615,11 +641,15 @@ fn rustc_explain_tool() -> AgentTool {
             "required": ["error_code"]
         }),
         make_executor("rustc_explain", |args| {
-            let code = args["error_code"]
+            let code_result = args["error_code"]
                 .as_str()
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| "E0308".to_string());
+                .ok_or_else(|| AgentError::InvalidToolCall {
+                    tool_name: "rustc_explain".into(),
+                    message: "missing required field 'error_code'".into(),
+                });
             Box::pin(async move {
+                let code = code_result?;
                 let mut cmd = tokio::process::Command::new("rustc");
                 cmd.arg("--explain");
                 cmd.arg(&code);
@@ -637,11 +667,11 @@ fn rustc_explain_tool() -> AgentTool {
 ///
 /// Returns `Ok(combined_output)` on success (exit code 0), or
 /// `Err(combined_output)` on failure (non-zero exit or spawn error).
-async fn run_cmd_output(cmd: &mut tokio::process::Command) -> Result<String, String> {
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+async fn run_cmd_output(cmd: &mut tokio::process::Command) -> AgentResult<String> {
+    let output = cmd.output().await.map_err(|e| AgentError::ToolExecution {
+        tool_name: "(subprocess)".into(),
+        message: format!("Failed to spawn command: {e}"),
+    })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -657,38 +687,31 @@ async fn run_cmd_output(cmd: &mut tokio::process::Command) -> Result<String, Str
     if output.status.success() {
         Ok(combined)
     } else {
-        Err(combined)
+        Err(AgentError::ToolExecution {
+            tool_name: "(subprocess)".into(),
+            message: combined,
+        })
     }
 }
 
 /// Wrap an async function into a [`ToolExecutor`] (erased closure).
 ///
 /// The inner function receives the parsed JSON arguments and returns
-/// `Result<String, String>` (success content or error message).
-/// Errors are wrapped in [`AgentError::ToolExecution`].
+/// `AgentResult<String>` (success or typed error).
+/// Errors are passed through directly without wrapping.
 fn make_executor<F>(tool_name: &'static str, f: F) -> ToolExecutor
 where
     F: Fn(
             serde_json::Value,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'static>,
+            Box<dyn std::future::Future<Output = AgentResult<String>> + Send + 'static>,
         > + Send
         + Sync
         + 'static,
 {
-    let name = tool_name.to_string();
+    let _ = tool_name;
     Arc::new(move |args| {
-        let fut = f(args);
-        let name = name.clone();
-        Box::pin(async move {
-            match fut.await {
-                Ok(content) => Ok(content),
-                Err(msg) => Err(AgentError::ToolExecution {
-                    tool_name: name,
-                    message: msg,
-                }),
-            }
-        })
+        Box::pin(f(args))
     })
 }
 
