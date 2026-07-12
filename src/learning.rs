@@ -145,10 +145,12 @@ impl LearningDB {
                  GROUP BY error_code ORDER BY cnt DESC LIMIT 10",
             ) {
                 Ok(s) => s,
-                Err(_) => return LearningStats {
-                    total_fixes,
-                    top_errors: Vec::new(),
-                },
+                Err(_) => {
+                    return LearningStats {
+                        total_fixes,
+                        top_errors: Vec::new(),
+                    }
+                }
             };
 
             let rows = match stmt.query_map([], |row| {
@@ -157,10 +159,12 @@ impl LearningDB {
                 Ok((code, count))
             }) {
                 Ok(r) => r,
-                Err(_) => return LearningStats {
-                    total_fixes,
-                    top_errors: Vec::new(),
-                },
+                Err(_) => {
+                    return LearningStats {
+                        total_fixes,
+                        top_errors: Vec::new(),
+                    }
+                }
             };
 
             rows.filter_map(|r| r.ok()).collect()
@@ -197,10 +201,7 @@ mod tests {
             .expect("record_fix failed");
 
         let suggestion = db.suggest_fix("E0502");
-        assert_eq!(
-            suggestion.as_deref(),
-            Some("use clone() before the borrow")
-        );
+        assert_eq!(suggestion.as_deref(), Some("use clone() before the borrow"));
 
         // Different error code → no suggestion
         assert!(db.suggest_fix("E0382").is_none());
@@ -259,7 +260,8 @@ mod tests {
         let db = LearningDB::new(":memory:").expect("failed to create DB");
 
         // Empty strings are valid — the schema doesn't forbid them.
-        db.record_fix("", "", "").expect("record_fix with empty strings failed");
+        db.record_fix("", "", "")
+            .expect("record_fix with empty strings failed");
         assert_eq!(db.stats().total_fixes, 1);
         assert_eq!(db.suggest_fix("").as_deref(), Some(""));
     }
@@ -280,10 +282,7 @@ mod tests {
         {
             let db = LearningDB::new(tmp.to_str().unwrap()).unwrap();
             assert_eq!(db.stats().total_fixes, 1);
-            assert_eq!(
-                db.suggest_fix("E0502").as_deref(),
-                Some("persisted fix")
-            );
+            assert_eq!(db.suggest_fix("E0502").as_deref(), Some("persisted fix"));
         }
 
         // Cleanup

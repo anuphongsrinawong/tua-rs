@@ -379,7 +379,6 @@ where
 
         // Process all complete lines from the buffer.
         while let Some(nl_pos) = buf.iter().position(|&b| b == b'\n') {
-
             let line: Vec<u8> = buf.drain(..=nl_pos).collect();
             let line = line
                 .strip_suffix(b"\n")
@@ -742,5 +741,186 @@ mod tests {
         let wire = agent_tools_to_wire(&[tool]).unwrap();
         assert_eq!(wire.len(), 1);
         assert_eq!(wire[0].function.name, "test_tool");
+    }
+
+    // ------------------------------------------------------------------
+    // Additional SSE parsing edge cases
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_empty_stream() {
+        // An empty byte stream should emit Done (no panics).
+        let events = run_parser(&[]).await;
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_immediate_done() {
+        // Immediate [DONE] marker with no preceding content.
+        let events = run_parser(&[b"data: [DONE]\n"]).await;
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_partial_chunk_boundary() {
+        // JSON payload split across two byte chunks (boundary inside the
+        // content string).  The parser buffers bytes until a newline is
+        // found, so this should work like a single chunk.
+        let events = run_parser(&[
+            b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel",
+            b"lo\"}}]}\n",
+            b"data: [DONE]\n",
+        ])
+        .await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "Hello"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_lines_skipped() {
+        // SSE comments (colon-prefixed), empty lines, and heartbeat
+        // keep-alive signals should be silently skipped.
+        let events = run_parser(&[
+            b": keep-alive\n",
+            b"\n",
+            b":comment\n",
+            b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"alive\"}}]}\n",
+            b"data: [DONE]\n",
+        ])
+        .await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "alive"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_non_data_lines_skipped() {
+        // Lines that do not start with \"data:\" should be ignored.
+        let events = run_parser(&[
+            b"event: message\n",
+            b"id: 42\n",
+            b"retry: 1000\n",
+            b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"payload\"}}]}\n",
+            b"data: [DONE]\n",
+        ])
+        .await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "payload"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_reasoning_with_content() {
+        // A single chunk may carry both reasoning_content and content.
+        let events = run_parser(&[
+            b"data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think...\",\"content\":\"Hello\"}}]}\n",
+            b"data: [DONE]\n",
+        ])
+        .await;
+
+        assert_eq!(events.len(), 3);
+        // TextDelta is emitted before ThinkingDelta in the same chunk.
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "Hello"));
+        assert!(matches!(&events[1], AgentEvent::ThinkingDelta(s) if s == "think..."));
+        assert!(matches!(&events[2], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_no_id_no_name() {
+        // Some providers send tool call deltas without id or name
+        // (those may appear in the first chunk only).  The parser should
+        // still produce a ToolCall event with defaults for id/name.
+        let events = run_parser(&[
+            b"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"key\\\":\\\"val\\\"}\"}}]}}]}\n",
+            b"data: [DONE]\n",
+        ])
+        .await;
+
+        let tool_events: Vec<AgentToolCall> = events
+            .iter()
+            .filter_map(|e| {
+                if let AgentEvent::ToolCall(tc) = e {
+                    Some(tc.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Should have at least one tool call emitted.
+        assert!(!tool_events.is_empty(), "should have tool call events");
+        let tc = &tool_events[0];
+        // id and name should be empty defaults; arguments should parse.
+        assert_eq!(tc.id, "");
+        assert_eq!(tc.name, "");
+        assert_eq!(tc.arguments, serde_json::json!({"key": "val"}));
+    }
+
+    // ------------------------------------------------------------------
+    // Additional conversion tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_agent_messages_to_wire_no_system() {
+        // Empty system string => no system message prepended.
+        let messages = vec![AgentMessage::user("hello")];
+        let wire = agent_messages_to_wire(messages, String::new());
+        assert_eq!(wire.len(), 1);
+        assert_eq!(wire[0].role, "user");
+        assert_eq!(wire[0].content.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn test_agent_messages_to_wire_empty_inputs() {
+        // Empty messages vec + empty system => empty wire list.
+        let wire = agent_messages_to_wire(vec![], String::new());
+        assert!(wire.is_empty());
+    }
+
+    #[test]
+    fn test_agent_messages_to_wire_assistant_no_text() {
+        // Assistant message with no text (None) and no tool calls.
+        let messages = vec![AgentMessage::assistant(None, vec![])];
+        let wire = agent_messages_to_wire(messages, "system".into());
+        assert_eq!(wire.len(), 2);
+        assert_eq!(wire[1].role, "assistant");
+        assert_eq!(wire[1].content, None);
+        assert!(wire[1].tool_calls.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Provider construction tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_openai_provider_new_stores_config() {
+        let config = ProviderConfig::new(
+            "openai",
+            "sk-test-key-12345",
+            Some("https://api.openai.com/v1".into()),
+            "gpt-4o-mini",
+        );
+        let provider = OpenAiCompatibleProvider::new(config.clone());
+
+        // Verify the provider stores the config correctly.
+        assert_eq!(provider.config.model, "gpt-4o-mini");
+        assert_eq!(provider.config.api_key, "sk-test-key-12345");
+        assert_eq!(
+            provider.config.base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(provider.config.provider_type, "openai");
+
+        // Verify the URL is built correctly.
+        assert_eq!(
+            provider.chat_url(),
+            "https://api.openai.com/v1/chat/completions"
+        );
     }
 }

@@ -73,50 +73,170 @@ pub fn compile_to_wasm(crate_path: &str, release: bool) -> Result<String, String
 mod tests {
     use super::*;
 
-    /// Ensure the function returns an error when given a non-existent directory.
+    // ── helpers ─────────────────────────────────────────────────────
+
+    /// Create a temporary directory with an optional `Cargo.toml` and `src/lib.rs`.
+    /// Returns the path and a guard that cleans up on drop.
+    fn temp_crate_dir(
+        name: &str,
+        with_manifest: bool,
+        with_src: bool,
+        manifest_content: Option<&str>,
+    ) -> (std::path::PathBuf, TempDir) {
+        let guard = TempDir;
+        let dir = std::env::temp_dir().join(format!("tua_wasm_test_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        if with_manifest {
+            let content = manifest_content.unwrap_or(
+                r#"[package]
+name = "wasm_test"
+version = "0.1.0"
+edition = "2021"
+"#,
+            );
+            std::fs::write(dir.join("Cargo.toml"), content).expect("write Cargo.toml");
+        }
+
+        if with_src {
+            std::fs::create_dir_all(dir.join("src")).expect("create src dir");
+            std::fs::write(dir.join("src").join("lib.rs"), "// empty").expect("write lib.rs");
+        }
+
+        (dir, guard)
+    }
+
+    struct TempDir;
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            // Best-effort cleanup — we intentionally do not panic on failure.
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("tua_wasm_test_*_{}", std::process::id())),
+            );
+        }
+    }
+
+    // ── existing tests ──────────────────────────────────────────────
+
     #[test]
     fn test_compile_to_wasm_nonexistent_path() {
         let result = compile_to_wasm("/nonexistent/crate/path", false);
         assert!(result.is_err(), "expected Err for non-existent path");
     }
 
-    /// Ensure the function returns an error when the target isn't installed.
-    /// This is a best-effort check — it may succeed if the target *is* installed.
     #[test]
     fn test_compile_to_wasm_unknown_target_in_empty_dir() {
-        // Create a temporary directory with a minimal Cargo.toml
-        let dir = std::env::temp_dir().join("tua_wasm_test_empty_crate");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-
-        std::fs::write(
-            dir.join("Cargo.toml"),
-            r#"[package]
-name = "wasm_test"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-"#,
-        )
-        .expect("write Cargo.toml");
-
-        std::fs::create_dir_all(dir.join("src")).expect("create src dir");
-        std::fs::write(dir.join("src").join("lib.rs"), "// empty")
-            .expect("write lib.rs");
-
+        let (dir, _guard) = temp_crate_dir("unknown_target", true, true, None);
         let path = dir.to_str().expect("valid utf-8 path");
         let result = compile_to_wasm(path, false);
+        // May succeed or fail depending on target installation — just don't panic.
+        assert!(result.is_ok() || result.is_err());
+    }
 
-        // Clean up
-        let _ = std::fs::remove_dir_all(&dir);
+    // ── new tests: 6+ ───────────────────────────────────────────────
 
-        // The result could be either success or failure depending on
-        // whether the wasm target is installed. We just verify it
-        // doesn't panic.
+    /// Passing a file path (not a directory) must fail — `current_dir()` will reject it.
+    #[test]
+    fn test_path_is_file_not_directory() {
+        let file =
+            std::env::temp_dir().join(format!("tua_wasm_test_file_not_dir_{}", std::process::id()));
+        std::fs::write(&file, "not a directory").expect("write temp file");
+        let path = file.to_str().expect("valid utf-8");
+        let result = compile_to_wasm(path, false);
+        assert!(result.is_err(), "expected Err when path is a file");
+        let err = result.unwrap_err();
+        assert!(!err.is_empty(), "error message must not be empty");
+        // The error should contain something about the failure
         assert!(
-            result.is_ok() || result.is_err(),
-            "expected Ok or Err, got neither"
+            err.contains("directory") || err.contains("file") || err.contains("Failed"),
+            "error message should give context: {err:?}"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// Empty string path must fail.
+    #[test]
+    fn test_empty_path() {
+        let result = compile_to_wasm("", false);
+        assert!(result.is_err(), "expected Err for empty path");
+    }
+
+    /// A directory that exists but contains no `Cargo.toml` must fail.
+    #[test]
+    fn test_missing_cargo_toml() {
+        let (dir, _guard) = temp_crate_dir("no_manifest", false, false, None);
+        let path = dir.to_str().expect("valid utf-8");
+        let result = compile_to_wasm(path, false);
+        assert!(result.is_err(), "expected Err when Cargo.toml is missing");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Cargo.toml") || err.contains("manifest"),
+            "error should mention missing manifest: {err:?}"
+        );
+    }
+
+    /// A malformed `Cargo.toml` must fail.
+    #[test]
+    fn test_invalid_manifest_contents() {
+        let (dir, _guard) = temp_crate_dir("bad_manifest", true, true, Some("[[[not valid toml"));
+        let path = dir.to_str().expect("valid utf-8");
+        let result = compile_to_wasm(path, false);
+        assert!(result.is_err(), "expected Err for invalid Cargo.toml");
+        let err = result.unwrap_err();
+        assert!(
+            !err.is_empty(),
+            "error message should not be empty: {err:?}"
+        );
+    }
+
+    /// A crate with `Cargo.toml` but no `src/` directory (no lib.rs or main.rs) must fail.
+    #[test]
+    fn test_missing_src_directory() {
+        let (dir, _guard) = temp_crate_dir("no_src", true, false, None);
+        let path = dir.to_str().expect("valid utf-8");
+        let result = compile_to_wasm(path, false);
+        assert!(result.is_err(), "expected Err when src/ is missing");
+        let err = result.unwrap_err();
+        assert!(
+            !err.is_empty(),
+            "error message should not be empty: {err:?}"
+        );
+    }
+
+    /// `release` mode with an invalid path must still fail gracefully (no panic).
+    #[test]
+    fn test_release_mode_nonexistent_path() {
+        let result = compile_to_wasm("/does/not/exist/at/all", true);
+        assert!(result.is_err(), "expected Err even in release mode");
+    }
+
+    /// Error message for a non-existent path should contain the `Failed to spawn` prefix
+    /// (which we add ourselves) so callers know what went wrong.
+    #[test]
+    fn test_error_message_contains_spawn_failure_context() {
+        let result = compile_to_wasm("/hopefully/this/does/not/exist/anywhere/my_dear", false);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("cargo") || err.contains("spawn"),
+            "error should mention cargo/spawn: {err:?}"
+        );
+    }
+
+    /// Error message for a failure that reaches cargo (no Cargo.toml) should contain
+    /// the original stderr from the subprocess.
+    #[test]
+    fn test_error_message_includes_cargo_stderr() {
+        let (dir, _guard) = temp_crate_dir("capture_stderr", false, false, None);
+        let path = dir.to_str().expect("valid utf-8");
+        let result = compile_to_wasm(path, false);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // cargo writes "error: ..." when it can't find Cargo.toml
+        assert!(
+            err.contains("error:") || err.contains("Cargo.toml"),
+            "error should propagate cargo diagnostics: {err:?}"
         );
     }
 }

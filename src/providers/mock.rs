@@ -399,4 +399,310 @@ mod tests {
         fn check_send<T: Send + Sync>() {}
         check_send::<MockProvider>();
     }
+
+    // -----------------------------------------------------------------------
+    // New tests — MockProvider::new()
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_mock_provider_new_empty() {
+        /// Verify that `MockProvider::new(vec![])` produces a stream
+        /// with no events (default is empty, no Done is injected).
+        let provider = MockProvider::new(vec![]);
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+        assert!(
+            events.is_empty(),
+            "expected empty event stream, got {} events",
+            events.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mock_provider_new_custom_delay() {
+        /// Verify that `with_delay` overrides the default 50 ms delay
+        /// and events still arrive correctly.
+        let provider = MockProvider::new(vec![
+            AgentEvent::TextDelta("alpha".into()),
+            AgentEvent::Done,
+        ])
+        .with_delay(Duration::from_millis(10));
+
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "alpha"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_mock_provider_with_text_single() {
+        /// Verify that `with_text` emits exactly one TextDelta followed by Done,
+        /// even for a very short or empty string.
+        let provider = MockProvider::with_text("Hi");
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "Hi"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    // -----------------------------------------------------------------------
+    // New tests — MockProviderBuilder edge cases
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_builder_empty() {
+        /// Edge case: build with no events at all.
+        /// The stream should produce nothing.
+        let provider = MockProviderBuilder::new().build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+        assert!(
+            events.is_empty(),
+            "expected empty stream from empty builder"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_only_done() {
+        /// Edge case: builder with just `done()` — one Done event only.
+        let provider = MockProviderBuilder::new().done().build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_builder_only_error() {
+        /// Builder with just an error event and no done().
+        /// The stream should produce the error event and then stop.
+        let provider = MockProviderBuilder::new()
+            .error("Something went wrong")
+            .build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::Error(s) if s == "Something went wrong"));
+    }
+
+    #[tokio::test]
+    async fn test_builder_multiple_text_deltas() {
+        /// Builder with many (5) text deltas followed by done.
+        let provider = MockProviderBuilder::new()
+            .text_delta("one")
+            .text_delta(" two")
+            .text_delta(" three")
+            .text_delta(" four")
+            .text_delta(" five")
+            .done()
+            .build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 6);
+        for (i, event) in events.iter().enumerate().take(5) {
+            assert!(
+                matches!(event, AgentEvent::TextDelta(_)),
+                "event {i} is not TextDelta"
+            );
+        }
+        assert!(matches!(&events[5], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_builder_thinking_then_text_no_done() {
+        /// Builder with thinking + text but no explicit done().
+        /// The stream should emit just those two events.
+        let provider = MockProviderBuilder::new()
+            .thinking_delta("Hmm…")
+            .text_delta("Answer: 42")
+            .build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::ThinkingDelta(s) if s == "Hmm…"));
+        assert!(matches!(&events[1], AgentEvent::TextDelta(s) if s == "Answer: 42"));
+    }
+
+    #[tokio::test]
+    async fn test_builder_tool_call_then_result_no_done() {
+        /// Builder with a tool call + result but no done().
+        let provider = MockProviderBuilder::new()
+            .tool_call("ls", serde_json::json!({"path": "/tmp"}))
+            .tool_result("call_1", "file1.txt\nfile2.txt")
+            .build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::ToolCall(tc) if tc.name == "ls"));
+        assert!(
+            matches!(&events[1], AgentEvent::ToolResult { output, .. } if output == "file1.txt\nfile2.txt")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_error_then_done() {
+        /// Builder with an error followed by done.
+        let provider = MockProviderBuilder::new().error("Timeout").done().build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::Error(s) if s == "Timeout"));
+        assert!(matches!(&events[1], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_builder_multiple_tool_calls() {
+        /// Builder with two separate tool call+result cycles.
+        let provider = MockProviderBuilder::new()
+            .text_delta("Running tools…")
+            .tool_call("curl", serde_json::json!({"url": "https://example.com"}))
+            .tool_result("call_2", "200 OK")
+            .tool_call("grep", serde_json::json!({"pattern": "main"}))
+            .tool_result("call_3", "fn main() {")
+            .text_delta("\nDone.")
+            .done()
+            .build();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        let events: Vec<AgentEvent> = stream.collect().await;
+
+        assert_eq!(events.len(), 7);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(s) if s == "Running tools…"));
+        assert!(matches!(&events[1], AgentEvent::ToolCall(tc) if tc.name == "curl"));
+        assert!(matches!(&events[2], AgentEvent::ToolResult { output, .. } if output == "200 OK"));
+        assert!(matches!(&events[3], AgentEvent::ToolCall(tc) if tc.name == "grep"));
+        assert!(
+            matches!(&events[4], AgentEvent::ToolResult { output, .. } if output == "fn main() {")
+        );
+        assert!(matches!(&events[5], AgentEvent::TextDelta(s) if s == "\nDone."));
+        assert!(matches!(&events[6], AgentEvent::Done));
+    }
+
+    #[tokio::test]
+    async fn test_delay_zero() {
+        /// Verify that zero delay produces events instantly.
+        use std::time::Instant;
+        let provider = MockProviderBuilder::new()
+            .delay(Duration::ZERO)
+            .text_delta("fast")
+            .done()
+            .build();
+
+        let start = Instant::now();
+        let mut stream = provider
+            .stream_chat(vec![], String::new(), vec![])
+            .await
+            .unwrap();
+        while stream.next().await.is_some() {}
+        let elapsed = start.elapsed();
+
+        // Zero delay should be well under 5ms
+        assert!(
+            elapsed < Duration::from_millis(5),
+            "expected near-instant with zero delay, elapsed={elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_multiple_stream_calls_same_provider() {
+        /// Verify that the same MockProvider can be used for multiple
+        /// `stream_chat` calls and returns the same events each time.
+        let provider = MockProvider::with_text("reusable");
+
+        for round in 0..3 {
+            let mut stream = provider
+                .stream_chat(vec![], String::new(), vec![])
+                .await
+                .unwrap();
+            let events: Vec<AgentEvent> = stream.collect().await;
+
+            assert_eq!(events.len(), 2, "round {round}: expected 2 events");
+            assert!(
+                matches!(&events[0], AgentEvent::TextDelta(s) if s == "reusable"),
+                "round {round}: wrong text"
+            );
+            assert!(
+                matches!(&events[1], AgentEvent::Done),
+                "round {round}: not done"
+            );
+        }
+    }
+
+    #[test]
+    fn test_builder_default_is_empty() {
+        /// Verify that a default builder has no events and zero delay.
+        let builder = MockProviderBuilder::default();
+        assert!(
+            builder.events.is_empty(),
+            "default builder should have no events"
+        );
+        assert_eq!(
+            builder.delay,
+            Duration::ZERO,
+            "default builder delay should be ZERO"
+        );
+    }
+
+    #[test]
+    fn test_builder_debug_format() {
+        /// Verify Debug formatting does not panic and contains expected info.
+        let builder = MockProviderBuilder::new().text_delta("hello").done();
+        let debug_str = format!("{:?}", builder);
+        assert!(!debug_str.is_empty(), "Debug output should not be empty");
+        assert!(
+            debug_str.contains("TextDelta"),
+            "Debug should contain TextDelta, got: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn test_mock_provider_debug_format_new() {
+        /// Verify that MockProvider Debug output is well-formed.
+        let provider = MockProvider::new(vec![AgentEvent::Done]);
+        let debug_str = format!("{:?}", provider);
+        assert!(!debug_str.is_empty());
+        assert!(debug_str.contains("Done") || debug_str.contains("events"));
+    }
 }

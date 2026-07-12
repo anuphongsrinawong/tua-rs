@@ -365,7 +365,11 @@ mod tests {
         let c = CodeCompleter::new();
         let mut sorted = c.words.clone();
         sorted.dedup();
-        assert_eq!(c.words.len(), sorted.len(), "words must not contain duplicates");
+        assert_eq!(
+            c.words.len(),
+            sorted.len(),
+            "words must not contain duplicates"
+        );
     }
 
     #[test]

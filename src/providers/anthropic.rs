@@ -415,7 +415,6 @@ where
         buf.extend_from_slice(&chunk);
 
         while let Some(nl_pos) = buf.iter().position(|&b| b == b'\n') {
-
             let line: Vec<u8> = buf.drain(..=nl_pos).collect();
             let line = line
                 .strip_suffix(b"\n")

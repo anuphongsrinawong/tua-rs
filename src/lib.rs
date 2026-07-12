@@ -6,8 +6,8 @@
 pub mod agent;
 pub mod completion;
 pub mod config;
-pub mod learning;
 pub mod dashboard;
+pub mod learning;
 pub mod parallel;
 pub mod profiles;
 pub mod prompts;

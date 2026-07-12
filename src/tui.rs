@@ -22,8 +22,8 @@
 //! `/diff`, `/permissions`, `/sessions`, `/rollback`, `/undo`, `/clear`
 
 use crate::agent::{AgentEvent, AgentLoop, AgentMessage, ModelProvider};
-use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
 use crate::profiles::{self, RustProfile};
+use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
 use crate::providers::mock::MockProvider;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::ProviderConfig;
@@ -490,8 +490,7 @@ impl App {
                 .active_tab()
                 .map(|t| (t.provider.clone(), t.model.clone(), t.api_key.clone()))
                 .unwrap_or_default();
-            self.tabs[0] =
-                Tab::with_provider("Chat 1", profile, provider, model, api_key);
+            self.tabs[0] = Tab::with_provider("Chat 1", profile, provider, model, api_key);
             self.messages
                 .push("🔄 Replaced last tab with a fresh one".into());
             return;
@@ -1072,13 +1071,21 @@ fn render_provider_picker(frame: &mut Frame, app: &App) {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let prefix = if i == app.picker.selected { "▶ " } else { "  " };
+            let prefix = if i == app.picker.selected {
+                "▶ "
+            } else {
+                "  "
+            };
             ListItem::new(format!("{}{}  [{}]", prefix, p.name, p.default_model))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().title(" Select Provider ").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(" Select Provider ")
+                .borders(Borders::ALL),
+        )
         .highlight_style(
             Style::default()
                 .fg(Color::Yellow)
@@ -1101,7 +1108,11 @@ fn render_model_picker(frame: &mut Frame, app: &App) {
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let prefix = if i == app.picker.selected { "▶ " } else { "  " };
+            let prefix = if i == app.picker.selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let is_default = m == &provider.default_model;
             let tag = if is_default { " (default)" } else { "" };
             ListItem::new(format!("{}{}{}", prefix, m, tag))
@@ -1571,8 +1582,10 @@ fn handle_model_picker_key(app: &mut App, key: KeyEvent) {
                     app.picker = Picker::default();
                 }
                 None => {
-                    app.messages
-                        .push(format!("⚠️  No API key for {} — add it to ~/.tau/credentials.json", info.name));
+                    app.messages.push(format!(
+                        "⚠️  No API key for {} — add it to ~/.tau/credentials.json",
+                        info.name
+                    ));
                     app.mode = AppMode::Normal;
                     app.picker = Picker::default();
                 }
@@ -1607,7 +1620,9 @@ fn append_assistant(tab: &mut Tab, text: String) {
                 *slot = Some(text);
             }
         }
-        _ => tab.messages.push(AgentMessage::assistant(Some(text), vec![])),
+        _ => tab
+            .messages
+            .push(AgentMessage::assistant(Some(text), vec![])),
     }
 }
 

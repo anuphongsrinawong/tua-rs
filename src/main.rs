@@ -34,7 +34,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Profiles, Config, Check, Test, Review, Sessions, Tui, Bench,
+    Profiles,
+    Config,
+    Check,
+    Test,
+    Review,
+    Sessions,
+    Tui,
+    Bench,
     /// Compile a crate to WebAssembly
     Wasm {
         /// Path to the crate directory
@@ -60,8 +67,10 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Config) => {
             let cfg = config::load()?;
-            println!("Profile: {} | Self-correct: {} | Review: {}", 
-                cfg.default_profile, cfg.self_correction, cfg.review_enabled);
+            println!(
+                "Profile: {} | Self-correct: {} | Review: {}",
+                cfg.default_profile, cfg.self_correction, cfg.review_enabled
+            );
         }
         Some(Commands::Sessions) => println!("Session persistence: enabled"),
         Some(Commands::Tui) => {
@@ -93,11 +102,16 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {
             if let Some(ref prompt) = cli.prompt {
-                println!("🦀 Tua Agent RS v1.0.0 | {} | {}", cli.profile, cli.provider);
+                println!(
+                    "🦀 Tua Agent RS v1.0.0 | {} | {}",
+                    cli.profile, cli.provider
+                );
                 println!("💬 {}", prompt);
             } else {
                 println!("🦀 Tua Agent RS v1.0.0");
-                println!("Commands: profiles | config | check | test | review | sessions | tui | bench");
+                println!(
+                    "Commands: profiles | config | check | test | review | sessions | tui | bench"
+                );
             }
         }
     }

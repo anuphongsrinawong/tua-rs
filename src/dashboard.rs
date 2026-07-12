@@ -10,7 +10,7 @@ use axum::{
     routing::get,
     Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
@@ -64,7 +64,7 @@ impl Default for DashboardState {
 // ---------------------------------------------------------------------------
 
 /// Response for `GET /api/health`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
 }
@@ -666,5 +666,265 @@ mod tests {
             body.get("tools").is_some(),
             "status should have tools field"
         );
+    }
+
+    // ========================================================================
+    // ▼  Unit tests — pure function tests (no server / no I/O)
+    // ========================================================================
+
+    /// `DashboardState::new()` creates a valid state without panicking.
+    #[tokio::test]
+    async fn test_dashboard_state_new_creates_state() {
+        let state = DashboardState::new();
+        let inner = state.inner.lock().await;
+        // The project directory should be non-empty (resolved from env or cwd).
+        assert!(
+            !inner.project_dir.is_empty(),
+            "project_dir must be non-empty"
+        );
+        // Should be an absolute path or at least "src"-related.
+        assert!(
+            inner.project_dir.contains("tua-rs")
+                || inner.project_dir.contains("tmp")
+                || inner.project_dir.starts_with('/'),
+            "project_dir should contain 'tua-rs' or be absolute, got: {}",
+            inner.project_dir
+        );
+    }
+
+    /// The `Default` impl matches `new()`.
+    #[tokio::test]
+    async fn test_dashboard_state_default_equals_new() {
+        let state_new = DashboardState::new();
+        let state_default = DashboardState::default();
+        let inner_new = state_new.inner.lock().await;
+        let inner_default = state_default.inner.lock().await;
+        assert_eq!(
+            inner_new.project_dir, inner_default.project_dir,
+            "Default and new should produce the same project_dir"
+        );
+    }
+
+    /// `render_html` produces a valid HTML document with DOCTYPE and html/head/body.
+    #[test]
+    fn test_render_html_contains_basic_structure() {
+        let project = dummy_project();
+        let build = dummy_build_ok();
+        let quality = dummy_quality();
+
+        let html = render_html(&project, &build, &quality);
+
+        assert!(
+            html.starts_with("<!DOCTYPE html>"),
+            "HTML must start with DOCTYPE"
+        );
+        assert!(html.contains("<html"), "HTML must contain <html tag");
+        assert!(html.contains("</html>"), "HTML must contain closing html");
+        assert!(html.contains("<head>"), "HTML must contain <head>");
+        assert!(html.contains("<body>"), "HTML must contain <body>");
+        assert!(html.contains("</body>"), "HTML must contain </body>");
+    }
+
+    /// `render_html` includes the project name, version, and profile.
+    #[test]
+    fn test_render_html_contains_project_info() {
+        let project = dummy_project();
+        let build = dummy_build_ok();
+        let quality = dummy_quality();
+
+        let html = render_html(&project, &build, &quality);
+
+        assert!(
+            html.contains("my-crate"),
+            "HTML should contain project name"
+        );
+        assert!(html.contains("3.0.0"), "HTML should contain version");
+        assert!(
+            html.contains("rustacean"),
+            "HTML should contain profile name"
+        );
+        assert!(html.contains("1.85.0"), "HTML should contain Rust version");
+    }
+
+    /// `render_html` shows a failure badge when the build failed.
+    #[test]
+    fn test_render_html_build_failure_renders_fail() {
+        let project = dummy_project();
+        let build = BuildStatus {
+            last_check: "2026-07-12".to_string(),
+            success: false,
+            error_count: 3,
+            warning_count: 5,
+        };
+        let quality = dummy_quality();
+
+        let html = render_html(&project, &build, &quality);
+
+        assert!(html.contains("FAIL"), "Failed build should show FAIL badge");
+        assert!(
+            html.contains("failure"),
+            "Failed build should use 'failure' CSS class"
+        );
+        assert!(html.contains("3"), "Should show 3 error count");
+        assert!(html.contains("5"), "Should show 5 warning count");
+    }
+
+    /// `render_html` handles empty workspace members gracefully.
+    #[test]
+    fn test_render_html_empty_workspace() {
+        let mut project = dummy_project();
+        project.workspace_members = vec![];
+        let build = dummy_build_ok();
+        let quality = dummy_quality();
+
+        let html = render_html(&project, &build, &quality);
+
+        // Should not crash, and the members cell should be present (possibly empty).
+        assert!(
+            html.contains("Members"),
+            "HTML should contain 'Members' table row"
+        );
+        // Should still render the rest of the page
+        assert!(
+            html.contains("my-crate"),
+            "HTML should still show project name"
+        );
+    }
+
+    /// LOC percentage is capped at 100% even for huge projects.
+    #[test]
+    fn test_render_html_loc_percentage_capped() {
+        let mut project = dummy_project();
+        project.lines_of_code = 1_000_000;
+        let build = dummy_build_ok();
+        let mut quality = dummy_quality();
+        quality.total_files = 10_000;
+
+        let html = render_html(&project, &build, &quality);
+
+        assert!(
+            html.contains("100%") || html.contains("100.0%"),
+            "LOC bar width should be capped at 100% for huge projects"
+        );
+    }
+
+    /// `render_tool_tags` returns non-empty HTML with `<span class="tool-tag">`.
+    #[test]
+    fn test_render_tool_tags_returns_html() {
+        let tags = render_tool_tags();
+
+        assert!(!tags.is_empty(), "tool tags HTML must not be empty");
+        assert!(
+            tags.contains("tool-tag"),
+            "tool tags should contain 'tool-tag' CSS class"
+        );
+        // Each tag should be a span
+        assert!(
+            tags.starts_with("<span"),
+            "Each tag should start with <span"
+        );
+    }
+
+    /// `chrono_formatted` returns a string matching the expected pattern.
+    #[test]
+    fn test_chrono_formatted_format() {
+        let ts = chrono_formatted();
+
+        // Format: "{days}d {hours:02}:{minutes:02}:{seconds:02} UTC"
+        assert!(
+            ts.ends_with(" UTC"),
+            "Timestamp must end with ' UTC', got: {ts}"
+        );
+        // Must contain a 'd' after the day count and a colon separating time parts
+        assert!(
+            ts.contains('d'),
+            "Timestamp must contain 'd' separator, got: {ts}"
+        );
+        assert!(
+            ts.contains(':'),
+            "Timestamp must contain ':' separator, got: {ts}"
+        );
+        // The day count should be a valid non-negative integer
+        let parts: Vec<&str> = ts.splitn(2, 'd').collect();
+        let days_str = parts[0];
+        let days: u64 = days_str.parse().expect("Days should be a valid u64");
+        // Unix epoch was 1970, so we should have at least 20000 days by 2026
+        assert!(
+            days >= 20_000,
+            "Days since epoch should be >= 20000 by 2026, got: {days}"
+        );
+    }
+
+    /// `HealthResponse` serializes to JSON correctly.
+    #[test]
+    fn test_health_response_serialization() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert_eq!(json, r#"{"status":"ok"}"#);
+
+        // Verify JSON parses back correctly with serde_json::Value
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["status"], "ok");
+    }
+
+    /// `render_html` includes total file count and test/doc-test counts.
+    #[test]
+    fn test_render_html_contains_quality_metrics() {
+        let project = dummy_project();
+        let build = dummy_build_ok();
+        let quality = QualityMetrics {
+            clippy_warnings: 2,
+            clippy_errors: 0,
+            total_files: 42,
+            test_count: 15,
+            doc_test_count: 7,
+        };
+
+        let html = render_html(&project, &build, &quality);
+
+        assert!(html.contains("42"), "HTML should show 42 total files");
+        assert!(html.contains("15"), "HTML should show 15 unit tests");
+        assert!(html.contains("7"), "HTML should show 7 doc tests");
+        assert!(html.contains("2"), "HTML should show 2 clippy warnings");
+        assert!(html.contains("0"), "HTML should show 0 clippy errors");
+    }
+
+    // -------------------------------------------------------------------
+    // Helpers for test data
+    // -------------------------------------------------------------------
+
+    fn dummy_project() -> ProjectInfo {
+        ProjectInfo {
+            name: "my-crate".to_string(),
+            version: "3.0.0".to_string(),
+            profile: "🚀 rustacean".to_string(),
+            rust_version: "1.85.0".to_string(),
+            git_branch: "main".to_string(),
+            git_commit: "abc1234".to_string(),
+            git_date: "2026-07-12".to_string(),
+            lines_of_code: 5123,
+            workspace_members: vec!["my-crate".to_string()],
+        }
+    }
+
+    fn dummy_build_ok() -> BuildStatus {
+        BuildStatus {
+            last_check: "2026-07-12 12:00:00 UTC".to_string(),
+            success: true,
+            error_count: 0,
+            warning_count: 0,
+        }
+    }
+
+    fn dummy_quality() -> QualityMetrics {
+        QualityMetrics {
+            clippy_warnings: 0,
+            clippy_errors: 0,
+            total_files: 10,
+            test_count: 5,
+            doc_test_count: 2,
+        }
     }
 }
