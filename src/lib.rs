@@ -3,6 +3,7 @@
 //! This library provides the core building blocks for the Tua agent:
 //! profiles, configuration, tool execution, and prompt generation.
 pub mod agent;
+pub mod cache;
 pub mod checkpoint;
 pub mod completion;
 pub mod config;
