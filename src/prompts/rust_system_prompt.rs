@@ -129,7 +129,7 @@ Before adding any new dependency:
 /// # Arguments
 ///
 /// * `tools`       — A list of tool names available to the agent (e.g.,
-///                   `["read", "write", "bash", "cargo", "clippy"]`).
+///   `["read", "write", "bash", "cargo", "clippy"]`).
 /// * `profile_name` — The active Rust profile name (e.g., `"rustacean"`).
 ///
 /// # Returns

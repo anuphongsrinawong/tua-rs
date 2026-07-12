@@ -416,6 +416,7 @@ pub fn default_sessions_dir() -> std::io::Result<PathBuf> {
 }
 
 /// Build the full file path for a session file in the given directory.
+#[allow(dead_code)]
 fn session_file_path(dir: &Path, id: &uuid::Uuid) -> PathBuf {
     dir.join(format!("{id}.jsonl"))
 }
@@ -455,7 +456,7 @@ fn seconds_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
 
     // Civil date from days since 1970-01-01 using Howard Hinnant's algorithm.
     let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let era = z / 146097;
     let doe = z - era * 146097; // day of era [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
     let y = yoe + era * 400;
@@ -506,7 +507,7 @@ mod tests {
     fn test_push_message_updates_timestamps() {
         let mut session = Session::new("rustacean", "model");
         let original_updated = session.meta.updated_at.clone();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         session.push_message(AgentMessage::user("Hello"));
         assert_eq!(session.messages.len(), 1);
@@ -899,7 +900,7 @@ mod tests {
         // A known date: 2026-07-12T10:00:00Z
         // Approximately 1783735200 seconds from epoch (rough estimate)
         // Let's compute: days from 1970 to 2026
-        let ts = 1783735200;
+        let ts = 1783850400;
         let (y, mo, d, h, mi, s) = seconds_to_datetime(ts);
         assert_eq!(y, 2026);
         assert_eq!(mo, 7);

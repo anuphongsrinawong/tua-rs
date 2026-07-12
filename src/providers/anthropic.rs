@@ -412,11 +412,7 @@ where
         let chunk = chunk_result.map_err(|e| format!("SSE byte stream error: {e}"))?;
         buf.extend_from_slice(&chunk);
 
-        loop {
-            let nl_pos = match buf.iter().position(|&b| b == b'\n') {
-                Some(pos) => pos,
-                None => break,
-            };
+        while let Some(nl_pos) = buf.iter().position(|&b| b == b'\n') {
 
             let line: Vec<u8> = buf.drain(..=nl_pos).collect();
             let line = line

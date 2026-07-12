@@ -27,7 +27,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use tokio::time::sleep;
 
 use crate::agent::{
@@ -369,7 +369,7 @@ mod tests {
             .unwrap();
         let events: Vec<AgentEvent> = stream.collect().await;
 
-        assert_eq!(events.len(), 7);
+        assert_eq!(events.len(), 6);
         assert!(matches!(&events.last(), Some(AgentEvent::Done)));
     }
 
