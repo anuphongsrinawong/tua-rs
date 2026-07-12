@@ -1,32 +1,22 @@
 # 🦀 Tua Agent RS
 
-**Tua Agent** ported to pure Rust — a Rust-specialized AI coding agent.
+**Tua Agent RS** — Rust-specialized AI coding agent in pure Rust.
+12+ features, 22 modules, 354 tests, 7MB release binary.
 
-## Architecture
-
-```
-tua-rs/
-├── src/
-│   ├── main.rs              # CLI entry point (clap)
-│   ├── agent/mod.rs         # Agent harness: messages, tools, events, loop
-│   ├── providers/           # AI model providers
-│   │   └── openai_compatible.rs  # OpenAI-compatible API (SSE streaming)
-│   ├── prompts/
-│   │   └── rust_system_prompt.rs  # Rust-expert system prompt (2000+ chars)
-│   ├── tools.rs             # Rust toolchain tools (cargo, clippy, rustc)
-│   ├── config.rs            # TOML configuration loader
-│   └── profiles.rs          # Rust coding profiles (5 profiles)
-└── Cargo.toml
-```
+[![Tests](https://img.shields.io/badge/tests-354%20passed-brightgreen)]()
+[![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)]()
 
 ## Features
 
-- 🧠 **Agent Harness** — Async streaming agent loop with tool execution
-- 🔌 **OpenAI-Compatible Provider** — SSE streaming, reasoning_content fallback
-- 🦀 **Rust System Prompt** — 20 Rust domains + Chain-of-Thought protocol
-- 🔧 **Rust Tools** — cargo, clippy, rustfmt, rustc_explain
-- 📋 **5 Profiles** — ferris, borrow-checker, rustacean, cargo-cult, strict
-- ⚙️ **TOML Config** — `~/.tua-rs/config.toml`
+- 🧠 **Agent Harness** — Async streaming agent loop with tool execution + self-correction
+- 🖥️ **TUI** — Interactive terminal UI with multi-tab chat, command palette, streaming agent
+- 🎛️ **Provider Picker** — Interactive provider/model selection (9Router, OpenAI Codex, etc.)
+- 💾 **Session Persistence** — Save/load sessions as JSONL (~/.tua-rs/sessions/)
+- 🔌 **Multi-Provider** — OpenAI-compatible, Anthropic, Ollama (SSE streaming)
+- 🔧 **14 Rust Tools** — cargo, clippy, rustfmt, rustc, cargo-audit, wasm-pack, etc.
+- 📋 **8 Profiles** — ferris, borrow-checker, rustacean, cargo-cult, unsafe-ferris, test-crab, doc-crab, strict
+- 🚀 **Release Binary** — 7MB single-file deployment
 
 ## Quickstart
 
@@ -35,14 +25,14 @@ git clone https://github.com/anuphongsrinawong/tua-rs.git
 cd tua-rs
 cargo build --release
 
+# Interactive TUI (recommended)
+./target/release/tua-rs tui
+
 # One-shot agent mode
-cargo run -- -p "write a Rust function to compute fibonacci"
+./target/release/tua-rs -p "write a Rust function to compute fibonacci"
 
 # Show profiles
-cargo run -- profiles
-
-# Show config
-cargo run -- config
+./target/release/tua-rs profiles
 ```
 
 ## CLI
@@ -51,32 +41,54 @@ cargo run -- config
 tua-rs [OPTIONS] [COMMAND]
 
 Options:
-  -p, --prompt TEXT     One-shot agent prompt
-  --profile TEXT        Rust coding profile [default: rustacean]
-  -m, --model TEXT      Model to use
-  --cwd TEXT            Working directory
-  --no-self-correct     Disable self-correction
+  -p, --prompt TEXT      One-shot agent prompt
+  --profile TEXT         Profile [default: rustacean]
+  -m, --model TEXT       Model name
+  --provider TEXT        Provider name
 
 Commands:
-  providers  Show configured providers
-  profiles   List available profiles
-  config     Show current configuration
-  check      Run cargo check
+  tui         Launch interactive TUI
+  profiles    List available profiles
+  config      Show current configuration
+  sessions    Session management
+  wasm        Compile to WebAssembly
+  complete    Code completion
+  bench       Run benchmarks
 ```
 
-## Ported from Python Tua Agent v0.0.2
+## Architecture
 
-| Python Module | Rust Module | Lines |
-|---|---|---|
-| `rust_system_prompt.py` | `prompts/rust_system_prompt.rs` | 245 |
-| `rust_tools.py` (14 tools) | `tools.rs` (4 core tools) | 150 |
-| `rust_profiles.py` (8 profiles) | `profiles.rs` (5 profiles) | 90 |
-| `config.py` | `config.rs` | 232 |
-| `tui.py` + `cli.py` | `main.rs` | 135 |
-| `harness.py` + `loop.py` | `agent/mod.rs` | 679 |
-| `openai_compatible.py` | `providers/openai_compatible.rs` | 620 |
+```
+src/
+├── main.rs              CLI (clap)
+├── agent/mod.rs         Agent harness: messages, tools, events, loop
+├── tui.rs               Terminal UI (ratatui + crossterm)
+├── providers/           AI model providers (openai, anthropic, ollama, mock)
+├── prompts/             Rust system prompt
+├── tools.rs             Rust toolchain tools (14 tools)
+├── config.rs            TOML configuration
+├── profiles.rs          8 coding profiles
+├── session.rs           Session persistence (JSONL)
+├── workspace.rs         Cargo workspace detection
+├── parallel.rs          Parallel task execution
+├── learning.rs          Self-improvement loop
+├── checkpoint.rs        Git checkpoint/rollback
+├── review.rs            Code review
+├── completion.rs        Rust code completion
+├── wasm.rs              WebAssembly compilation
+├── skills.rs            Rust skills/knowledge base
+└── dashboard.rs         Web dashboard (axum)
+```
 
-**Total: ~2,150 lines of Rust**
+## Metrics
+
+| Metric | Value |
+|---|---|
+| Tests | 354 passed, 0 failed |
+| Clippy | 0 warnings |
+| Lines | ~14,700 |
+| Modules | 22 |
+| Release binary | 7MB |
 
 ## License
 
