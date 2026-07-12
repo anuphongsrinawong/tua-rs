@@ -184,6 +184,65 @@ pub fn load() -> Result<TuaConfig, ConfigError> {
 }
 
 // ---------------------------------------------------------------------------
+// Project-level configuration (.tuarc / .tua/config.toml)
+// ---------------------------------------------------------------------------
+
+/// Project-level overrides from `.tuarc` or `.tua/config.toml`.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ProjectConfig {
+    #[serde(default)]
+    pub project: ProjectSettings,
+}
+
+/// Individual per-project overrides.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ProjectSettings {
+    pub model: Option<String>,
+    pub profile: Option<String>,
+    pub self_correction: Option<bool>,
+    pub max_rounds: Option<u32>,
+    pub max_parallel: Option<usize>,
+}
+
+const PROJECT_CONFIG_CANDIDATES: &[&str] = &[".tuarc", ".tua/config.toml"];
+
+/// Load project config from `project_root`.
+pub fn load_project_config(project_root: &PathBuf) -> Option<ProjectConfig> {
+    for candidate in PROJECT_CONFIG_CANDIDATES {
+        let path = project_root.join(candidate);
+        if !path.exists() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(cfg) = toml::from_str::<ProjectConfig>(&content) {
+                tracing::debug!("loaded project config from {}", path.display());
+                return Some(cfg);
+            }
+        }
+    }
+    None
+}
+
+/// Merge project overrides into global config.
+pub fn merge_project_config(global: &mut TuaConfig, project: &ProjectConfig) {
+    if let Some(ref model) = project.project.model {
+        let pn = global.effective_default_provider().to_string();
+        if let Some(ps) = global.providers.get_mut(&pn) {
+            ps.model = Some(model.clone());
+        }
+    }
+    if let Some(ref p) = project.project.profile {
+        global.default_profile = p.clone();
+    }
+    if let Some(sc) = project.project.self_correction {
+        global.self_correction = sc;
+    }
+    if let Some(mr) = project.project.max_rounds {
+        global.max_self_corrections = mr;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -503,5 +562,65 @@ tool_timeout_secs = not_a_number"#,
         let cfg: TuaConfig = toml::from_str(toml_str).unwrap();
         // Empty [providers] section means no providers
         assert!(cfg.providers.is_empty());
+    }
+
+    // ── Project config tests ──────
+
+    #[test]
+    fn test_project_config_deserialization_full() {
+        let toml_str = "[project]\nmodel = \"ds/deepseek-v4-pro\"\nprofile = \"rustacean\"\nself_correction = true\nmax_rounds = 5\nmax_parallel = 4\n";
+        let cfg: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.project.model.as_deref(), Some("ds/deepseek-v4-pro"));
+        assert_eq!(cfg.project.profile.as_deref(), Some("rustacean"));
+        assert_eq!(cfg.project.self_correction, Some(true));
+        assert_eq!(cfg.project.max_rounds, Some(5));
+        assert_eq!(cfg.project.max_parallel, Some(4));
+    }
+
+    #[test]
+    fn test_project_config_partial() {
+        let toml_str = "[project]\nprofile = \"o3-mini\"\n";
+        let cfg: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.project.profile.as_deref(), Some("o3-mini"));
+        assert!(cfg.project.model.is_none());
+    }
+
+    #[test]
+    fn test_merge_project_config_overrides_global() {
+        let mut global = TuaConfig::default();
+        let toml_str = "[project]\nprofile = \"rustacean\"\nself_correction = false\nmax_rounds = 2\n";
+        let project: ProjectConfig = toml::from_str(toml_str).unwrap();
+        merge_project_config(&mut global, &project);
+        assert_eq!(global.default_profile, "rustacean");
+        assert!(!global.self_correction);
+        assert_eq!(global.max_self_corrections, 2);
+    }
+
+    #[test]
+    fn test_merge_does_not_override_when_none() {
+        let mut global = TuaConfig::default();
+        global.default_profile = "expert".into();
+        merge_project_config(&mut global, &ProjectConfig::default());
+        assert_eq!(global.default_profile, "expert");
+    }
+
+    #[test]
+    fn test_load_project_config_nonexistent_dir() {
+        let dir = std::env::temp_dir().join("__tua_pcfg_nx__");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(load_project_config(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_load_project_config_reads_tuarc() {
+        let dir = std::env::temp_dir().join("__tua_pcfg_ta__");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".tuarc"), "[project]\nprofile = \"rustacean\"\n").unwrap();
+        let cfg = load_project_config(&dir).unwrap();
+        assert_eq!(cfg.project.profile.as_deref(), Some("rustacean"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
