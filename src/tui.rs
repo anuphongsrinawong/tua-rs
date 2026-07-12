@@ -197,6 +197,19 @@ fn default_provider_model(providers: &[ProviderInfo]) -> (String, String) {
 // Types
 // ---------------------------------------------------------------------------
 
+/// A record of a file edit tracked in the session.
+#[derive(Debug, Clone)]
+pub struct FileEdit {
+    /// Path of the file that was edited.
+    pub path: String,
+    /// Content before the edit.
+    pub before: String,
+    /// Content after the edit.
+    pub after: String,
+    /// Timestamp when the edit was recorded.
+    pub timestamp: String,
+}
+
 /// State for the provider/model picker overlay.
 #[derive(Debug, Clone, Default)]
 pub struct Picker {
@@ -239,7 +252,7 @@ pub struct Tab {
     /// Conversation history (user + assistant messages).
     pub messages: Vec<AgentMessage>,
     /// File edits tracked in this session.
-    pub edits: Vec<String>,
+    pub edits: Vec<FileEdit>,
     /// Vertical scroll offset for the messages area.
     pub scroll_offset: usize,
     /// Selected provider name for this tab (empty ⇒ mock provider).
@@ -286,6 +299,29 @@ impl Tab {
     }
 }
 
+/// A recorded file edit, capturing the before/after content for diff display.
+#[derive(Debug, Clone)]
+pub struct FileEdit {
+    /// Path to the file that was edited.
+    pub path: PathBuf,
+    /// The original content before the edit.
+    pub before: String,
+    /// The new content after the edit.
+    pub after: String,
+}
+
+impl FileEdit {
+    /// Create a new `FileEdit`.
+    pub fn new(path: PathBuf, before: String, after: String) -> Self {
+        Self { path, before, after }
+    }
+
+    /// Generate a simple diff string showing what changed.
+    pub fn diff(&self) -> String {
+        simple_diff(&self.path, &self.before, &self.after)
+    }
+}
+
 /// Mode the TUI is currently in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -304,6 +340,8 @@ pub enum AppMode {
 pub struct App {
     /// All open tabs.
     pub tabs: Vec<Tab>,
+    /// Recorded file edits, indexed by tab index.
+    pub edits: Vec<Vec<FileEdit>>,
     /// Index of the active (selected) tab.
     pub active_tab: usize,
     /// Current input buffer (what the user is typing).
@@ -356,6 +394,7 @@ impl App {
 
         Self {
             tabs: vec![tab],
+            edits: vec![Vec::new()],
             active_tab: 0,
             input_buffer: String::new(),
             messages: Vec::new(),
@@ -569,6 +608,148 @@ impl App {
         }
     }
 
+    /// Record a file edit in the active tab.
+    ///
+    /// Captures the file path, before/after content, and the current
+    /// local timestamp. The edit is pushed onto the active tab's edit
+    /// history so it can be inspected with `/diff`.
+    pub fn record_edit(&mut self, path: &str, before: &str, after: &str) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string());
+
+        let edit = FileEdit {
+            path: path.to_string(),
+            before: before.to_string(),
+            after: after.to_string(),
+            timestamp,
+        };
+
+        if let Some(tab) = self.active_tab_mut() {
+            tab.edits.push(edit);
+            let count = tab.edits.len();
+            self.messages
+                .push(format!("📝 Recorded edit #{count} for {path}"));
+        }
+    }
+
+    /// Produce a simple line-based unified diff between two text strings.
+    ///
+    /// The output uses `-` and `+` prefixes for removed/added lines, and
+    /// includes surrounding context lines for readability.
+    fn simple_diff(&self, before: &str, after: &str) -> String {
+        let before_lines: Vec<&str> = before.lines().collect();
+        let after_lines: Vec<&str> = after.lines().collect();
+
+        if before_lines == after_lines {
+            return "  (no changes)".to_string();
+        }
+
+        let prefix_len = before_lines
+            .iter()
+            .zip(after_lines.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let suffix_len = before_lines
+            .iter()
+            .rev()
+            .zip(after_lines.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let mut result = String::new();
+        if prefix_len > 0 {
+            result.push_str("@@ ... @@\n");
+        }
+        let ctx_start = prefix_len.saturating_sub(3);
+        for i in ctx_start..prefix_len {
+            result.push_str(&format!("  {}\n", before_lines[i]));
+        }
+        for i in prefix_len..before_lines.len().saturating_sub(suffix_len) {
+            result.push_str(&format!("- {}\n", before_lines[i]));
+        }
+        for i in prefix_len..after_lines.len().saturating_sub(suffix_len) {
+            result.push_str(&format!("+ {}\n", after_lines[i]));
+        }
+        let after_end = after_lines.len().saturating_sub(suffix_len);
+        for i in after_end..std::cmp::min(after_end + 3, after_lines.len()) {
+            if let Some(line) = after_lines.get(i) {
+                result.push_str(&format!("  {}\n", line));
+            }
+        }
+        result
+    }
+
+    /// Show a formatted diff from the active tab's edit history.
+    ///
+    /// Supported arguments:
+    /// - `""` (empty) — summary of all edits
+    /// - `"last"` — full unified diff of the most recent edit
+    /// - `"<n>"` — full unified diff of edit #n (1-indexed)
+    ///
+    /// Returns a string suitable for display in the message panel.
+    pub fn show_diff(&mut self, arg: &str) -> String {
+        let Some(tab) = self.active_tab() else {
+            return "⚠️  No active tab".into();
+        };
+
+        if tab.edits.is_empty() {
+            return "📝 No edits recorded in this tab yet".into();
+        }
+
+        if arg.is_empty() {
+            let mut lines: Vec<String> = Vec::with_capacity(tab.edits.len() + 2);
+            lines.push("📂 Recorded edits:".into());
+            lines.push("━━━━━━━━━━━━━━━━━━━━".into());
+            for (i, edit) in tab.edits.iter().enumerate() {
+                let added = edit
+                    .after
+                    .lines()
+                    .count()
+                    .saturating_sub(edit.before.lines().count());
+                let removed = edit
+                    .before
+                    .lines()
+                    .count()
+                    .saturating_sub(edit.after.lines().count());
+                let sign = if added > 0 { "+" } else { "" };
+                lines.push(format!(
+                    "  #{i}: {}  ({} lines, {}{} / -{})",
+                    edit.path, edit.timestamp, sign, added, removed
+                ));
+            }
+            return lines.join("\n");
+        }
+
+        let idx: Option<usize> = if arg == "last" {
+            Some(tab.edits.len().saturating_sub(1))
+        } else {
+            arg.parse::<usize>().ok().and_then(|n| {
+                if n == 0 { None } else { Some(n - 1) }
+            })
+        };
+
+        let Some(idx) = idx else {
+            return format!("⚠️  Invalid edit index: {arg}, expected <n> or 'last'");
+        };
+
+        let Some(edit) = tab.edits.get(idx) else {
+            return format!(
+                "⚠️  Edit #{idx} not found (have {} edits)",
+                tab.edits.len()
+            );
+        };
+
+        format!(
+            "📝 Edit #{} — {}\n\n{}",
+            idx + 1,
+            edit.path,
+            self.simple_diff(&edit.before, &edit.after),
+        )
+    }
+
     /// Execute a slash command from the palette.
     ///
     /// Returns a message describing the result.
@@ -613,7 +794,8 @@ impl App {
                           testing, wasm"
                 .into(),
             "/config" => "⚙️  Run `tua-rs config` in terminal for full configuration".into(),
-            "/diff" => "📝 Diff: use the `diff` tool in agent conversation".into(),
+            cmd if cmd.starts_with("/diff ") => self.show_diff(cmd.strip_prefix("/diff ").unwrap().trim()),
+            "/diff" => self.show_diff(""),
             "/permissions" => "🔐 Permission mode: ask (default) — use --permission flag to change"
                 .into(),
             "/sessions" => {
@@ -1939,4 +2121,79 @@ mod tests {
         assert_eq!(truncate("hi", 2), "hi");
         assert_eq!(truncate("abc", 1), "...");
     }
+    // -----------------------------------------------------------------------
+    // Diff viewer tests
+    // -----------------------------------------------------------------------
+
+    /// Recording a file edit adds it to the active tab's edit history.
+    #[test]
+    fn test_record_file_edit() {
+        let mut app = App::new();
+        assert_eq!(app.tabs[0].edits.len(), 0);
+
+        app.record_edit("src/main.rs", "old content", "new content");
+        assert_eq!(app.tabs[0].edits.len(), 1);
+
+        let edit = &app.tabs[0].edits[0];
+        assert_eq!(edit.path, "src/main.rs");
+        assert_eq!(edit.before, "old content");
+        assert_eq!(edit.after, "new content");
+        assert!(!edit.timestamp.is_empty(), "timestamp should be set");
+    }
+
+    /// `show_diff` returns a helpful message when no edits exist.
+    #[test]
+    fn test_diff_empty() {
+        let mut app = App::new();
+        let result = app.show_diff("");
+        assert!(
+            result.contains("No edits recorded"),
+            "expected 'no edits' message"
+        );
+    }
+
+    /// `show_diff` shows a summary when there is one edit.
+    #[test]
+    fn test_diff_single_edit() {
+        let mut app = App::new();
+        app.record_edit(
+            "Cargo.toml",
+            "[package] name = old",
+            "[package] name = new",
+        );
+
+        let summary = app.show_diff("");
+        assert!(summary.contains("Cargo.toml"), "summary should show path");
+        assert!(summary.contains("#0"), "summary should show edit index");
+
+        let detail = app.show_diff("0");
+        assert!(
+            detail.contains("Invalid"),
+            "expected 'Invalid' for arg '0'"
+        );
+
+        let detail = app.show_diff("1");
+        assert!(detail.contains("Cargo.toml"), "detail should show path");
+        assert!(detail.contains("- old"), "detail should show removed line");
+        assert!(detail.contains("+ new"), "detail should show added line");
+
+        let last = app.show_diff("last");
+        assert!(last.contains("Cargo.toml"), "last should show path");
+        assert!(last.contains("- old"), "last should show removed line");
+    }
+
+    /// `show_diff` with "last" argument returns the most recent edit.
+    #[test]
+    fn test_diff_last() {
+        let mut app = App::new();
+        app.record_edit("file1.rs", "a", "b");
+        app.record_edit("file2.rs", "x", "y");
+
+        let last = app.show_diff("last");
+        assert!(last.contains("file2.rs"), "last should be file2.rs");
+        assert!(last.contains("- x"), "last should show - x");
+        assert!(last.contains("+ y"), "last should show + y");
+    }
+
+
 }
