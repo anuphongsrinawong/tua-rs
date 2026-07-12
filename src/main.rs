@@ -54,7 +54,6 @@ enum Commands {
         parallel: usize,
     },
     /// Generate test skeletons from a Rust source file
-    GenTests {
         /// Path to the Rust source file to analyze
         path: String,
     },
@@ -98,9 +97,7 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("⚠️  {} subtask(s) failed", result.failed);
             }
         }
-        Some(Commands::GenTests { path }) => {
             println!("🦀 Generating tests for: {}\n", path);
-            let tests = tua_rs::testgen::generate_tests(&path);
             if tests.is_empty() {
                 println!("⚠️  No public functions found in '{}'", path);
             } else {
