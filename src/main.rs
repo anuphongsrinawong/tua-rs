@@ -1,7 +1,7 @@
 //! 🦀 Tua Agent RS v1.0.0
 
 use clap::{Parser, Subcommand};
-use tua_rs::{completion, config, orchestrator, profiles, session, tui, wasm};
+use tua_rs::{config, profiles};
 
 #[derive(Parser)]
 #[command(name = "tua-rs", version = "1.0.0")]
