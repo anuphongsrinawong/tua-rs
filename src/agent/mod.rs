@@ -361,21 +361,38 @@ impl Default for AgentConfig {
 /// every tool execution round that modifies `.rs` files. If compilation
 /// errors are detected, they are fed back to the model as a
 /// [`AgentMessage::User`] so it can attempt to fix them automatically.
+
+// ── State Machine Loop ───────────────────────────────────────────────
+
+/// Agent execution phase (Finite State Machine).
+///
+/// Enforces disciplined workflow: plan → execute → verify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentPhase {
+    /// Planning: agent analyzes but cannot use write/edit tools.
+    /// Output: a plan (text) that the user can approve.
+    Planning,
+    /// Executing: agent uses tools to implement the plan.
+    Executing,
+    /// Verifying: agent runs tests/checks but cannot modify code.
+    Verifying,
+    /// Free: no restrictions (default).
+    Free,
+}
+
+/// Extended configuration for the agent harness.
 #[derive(Debug, Clone)]
 pub struct AgentHarnessConfig {
-    /// Whether self-correction via `cargo check` is active.
-    ///
-    /// When `true`, the harness will automatically detect edits to Rust
-    /// source files and run `cargo check` after each tool execution round.
     pub self_correction: bool,
-
-    /// Maximum number of consecutive self-correction rounds.
-    ///
-    /// Each round injects compiler errors as a user message and allows
-    /// the model one more attempt to fix them. Once this limit is
-    /// reached the harness stops injecting errors and continues
-    /// normally.
     pub max_self_corrections: u32,
+    /// Enable state machine: force Planning→Executing→Verifying phases.
+    pub use_state_machine: bool,
+    /// Enable parallel tool execution (run independent tools simultaneously).
+    pub parallel_tools: bool,
+    /// Max parallel tool calls per round.
+    pub max_parallel_tools: usize,
+    /// Allow agent to ask user for guidance (interactive mode).
+    pub allow_ask_user: bool,
 }
 
 impl Default for AgentHarnessConfig {
@@ -383,6 +400,10 @@ impl Default for AgentHarnessConfig {
         Self {
             self_correction: true,
             max_self_corrections: 3,
+            use_state_machine: false,
+            parallel_tools: false,
+            max_parallel_tools: 4,
+            allow_ask_user: false,
         }
     }
 }
