@@ -951,9 +951,7 @@ where
         + 'static,
 {
     let _ = tool_name;
-    Arc::new(move |args| {
-        Box::pin(f(args))
-    })
+    Arc::new(move |args| Box::pin(f(args)))
 }
 
 // ---------------------------------------------------------------------------
@@ -967,7 +965,7 @@ mod tests {
     #[test]
     fn test_tool_count() {
         let tools = rust_tools();
-        assert_eq!(tools.len(), 14, "expected exactly 14 tools");
+        assert_eq!(tools.len(), 19, "expected exactly 19 tools");
     }
 
     #[tokio::test]
@@ -1139,7 +1137,7 @@ mod tests {
 
     #[test]
     fn test_rust_tools_returns_exactly_14() {
-        assert_eq!(rust_tools().len(), 14);
+        assert_eq!(rust_tools().len(), 19);
     }
 
     #[test]
@@ -1159,14 +1157,19 @@ mod tests {
         names.sort();
         let expected = vec![
             "cargo",
+            "cargo_add",
             "cargo_audit",
             "cargo_bench",
             "cargo_deny",
             "cargo_doc",
+            "cargo_expand",
             "cargo_outdated",
             "cargo_test_doc",
             "cargo_udeps",
             "clippy",
+            "coverage",
+            "grep",
+            "mutants",
             "rustc",
             "rustc_explain",
             "rustfmt",
@@ -1930,16 +1933,19 @@ mod tests {
         }
     }
 
-    /// All 14 tool names have expected prefix patterns.
+    /// All 19 tool names have expected prefix patterns.
     #[test]
     fn test_tool_name_naming_convention() {
         for tool in &rust_tools() {
             let name = &tool.name;
-            // Tools either start with "cargo", "rust", "wasm", or "clippy"
+            // Tools either start with "cargo", "rust", "wasm", or match special names
             let valid_prefix = name.starts_with("cargo")
                 || name.starts_with("rust")
                 || name == "clippy"
-                || name == "wasm_pack";
+                || name == "wasm_pack"
+                || name == "grep"
+                || name == "coverage"
+                || name == "mutants";
             assert!(
                 valid_prefix,
                 "tool name '{}' does not follow naming convention",

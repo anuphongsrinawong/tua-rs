@@ -193,17 +193,6 @@ mod tests {
         };
     }
 
-    /// Early-return from the enclosing test if the working tree
-    /// has uncommitted changes.
-    macro_rules! require_clean {
-        () => {
-            if !git_is_clean() {
-                eprintln!("⚠️  working tree has uncommitted changes — skipping");
-                return;
-            }
-        };
-    }
-
     /// A global mutex that serialises tests which change the process CWD.
     ///
     /// Without this, parallel tests that call `std::env::set_current_dir`
@@ -223,8 +212,9 @@ mod tests {
 
     #[test]
     fn test_is_git_repo_outside_repo() {
-        // /tmp is unlikely to be a git repo.
-        assert!(!is_git_repo(Some("/tmp")));
+        let tmp = std::env::temp_dir();
+        // temp dir is unlikely to be a git repo.
+        assert!(!is_git_repo(Some(tmp.to_str().unwrap())));
     }
 
     #[test]
@@ -266,7 +256,8 @@ mod tests {
         let _lock = CWD_LOCK.lock().unwrap();
 
         let original_cwd = std::env::current_dir().ok();
-        std::env::set_current_dir("/tmp").ok();
+        let tmp = std::env::temp_dir();
+        std::env::set_current_dir(&tmp).ok();
 
         let hash = last_commit_hash();
         assert!(hash.is_none(), "expected None outside a git repo");
@@ -368,7 +359,8 @@ mod tests {
         let _lock = CWD_LOCK.lock().unwrap();
 
         let original_cwd = std::env::current_dir().ok();
-        std::env::set_current_dir("/tmp").ok();
+        let tmp = std::env::temp_dir();
+        std::env::set_current_dir(&tmp).ok();
 
         let result = checkpoint("should not work");
         assert!(
@@ -386,7 +378,8 @@ mod tests {
         let _lock = CWD_LOCK.lock().unwrap();
 
         let original_cwd = std::env::current_dir().ok();
-        std::env::set_current_dir("/tmp").ok();
+        let tmp = std::env::temp_dir();
+        std::env::set_current_dir(&tmp).ok();
 
         assert!(!rollback(), "rollback outside repo should return false");
 

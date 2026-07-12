@@ -795,16 +795,16 @@ mod tests {
 
         let mut s1 = Session::new("rustacean", "model1");
         s1.push_message(AgentMessage::user("msg1"));
-        s1.save(&dir.join("session-a.jsonl")).unwrap();
+        s1.save(dir.join("session-a.jsonl")).unwrap();
 
         let mut s2 = Session::new("ferris", "model2");
         s2.push_message(AgentMessage::user("msg2"));
         s2.push_message(AgentMessage::user("msg3"));
-        s2.save(&dir.join("session-b.jsonl")).unwrap();
+        s2.save(dir.join("session-b.jsonl")).unwrap();
 
-        let mut s3 = Session::new("strict", "model3");
+        let s3 = Session::new("strict", "model3");
         // empty session
-        s3.save(&dir.join("session-c.jsonl")).unwrap();
+        s3.save(dir.join("session-c.jsonl")).unwrap();
 
         let summaries = list_sessions(&dir).unwrap();
         assert_eq!(summaries.len(), 3);
@@ -838,11 +838,11 @@ mod tests {
 
         // Save a real session
         let s = Session::new("rustacean", "model");
-        s.save(&dir.join("valid.jsonl")).unwrap();
+        s.save(dir.join("valid.jsonl")).unwrap();
 
         // Put a non-JSONL file in the directory
-        fs::write(&dir.join("not_a_session.txt"), "hello").unwrap();
-        fs::write(&dir.join("data.csv"), "a,b,c").unwrap();
+        fs::write(dir.join("not_a_session.txt"), "hello").unwrap();
+        fs::write(dir.join("data.csv"), "a,b,c").unwrap();
 
         let summaries = list_sessions(&dir).unwrap();
         assert_eq!(summaries.len(), 1, "only the .jsonl file should be listed");
@@ -858,10 +858,10 @@ mod tests {
 
         // Valid session
         let s = Session::new("rustacean", "model");
-        s.save(&dir.join("good.jsonl")).unwrap();
+        s.save(dir.join("good.jsonl")).unwrap();
 
         // Corrupted file (invalid JSON on first line)
-        fs::write(&dir.join("bad.jsonl"), "not json\n").unwrap();
+        fs::write(dir.join("bad.jsonl"), "not json\n").unwrap();
 
         let summaries = list_sessions(&dir).unwrap();
         assert_eq!(summaries.len(), 1, "corrupted file should be skipped");
@@ -958,7 +958,7 @@ mod tests {
         assert_eq!(mi, 0);
         assert_eq!(s, 0);
         // d could be 12 or close depending on exact timestamp
-        assert!(d >= 1 && d <= 31, "day out of range: {d}");
+        assert!((1..=31).contains(&d), "day out of range: {d}");
 
         // Leap year: 2024-02-29
         let feb_29_2024 = 1709164800; // approximate

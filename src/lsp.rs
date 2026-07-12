@@ -84,7 +84,7 @@ impl LspClient {
         self.send_request(&init.to_string())?;
         // Read the initialize response
         let _response = self.read_response()?;
-        
+
         // Send "initialized" notification
         let notif = serde_json::json!({
             "jsonrpc": "2.0",
@@ -92,7 +92,7 @@ impl LspClient {
             "params": {}
         });
         self.send_request(&notif.to_string())?;
-        
+
         // Wait a moment for the server to index
         std::thread::sleep(std::time::Duration::from_millis(500));
         Ok(())
@@ -112,7 +112,7 @@ impl LspClient {
         });
         self.send_request(&req.to_string())?;
         let resp = self.read_response()?;
-        
+
         Ok(LspResult {
             query_type: "definition".into(),
             symbol: format!("{}:{}:{}", file, line, col),
@@ -136,7 +136,7 @@ impl LspClient {
         });
         self.send_request(&req.to_string())?;
         let resp = self.read_response()?;
-        
+
         Ok(LspResult {
             query_type: "hover".into(),
             symbol: format!("{}:{}:{}", file, line, col),
@@ -161,7 +161,7 @@ impl LspClient {
         });
         self.send_request(&req.to_string())?;
         let resp = self.read_response()?;
-        
+
         Ok(LspResult {
             query_type: "references".into(),
             symbol: format!("{}:{}:{}", file, line, col),
@@ -182,13 +182,15 @@ impl LspClient {
         let mut guard = self.process.lock().unwrap();
         if let Some(ref mut child) = *guard {
             let header = format!("Content-Length: {}\r\n\r\n", json.len());
-            let stdin = child.stdin.as_mut()
-                .ok_or("stdin not available")?;
-            stdin.write_all(header.as_bytes())
+            let stdin = child.stdin.as_mut().ok_or("stdin not available")?;
+            stdin
+                .write_all(header.as_bytes())
                 .map_err(|e| format!("LSP write error: {}", e))?;
-            stdin.write_all(json.as_bytes())
+            stdin
+                .write_all(json.as_bytes())
                 .map_err(|e| format!("LSP write error: {}", e))?;
-            stdin.flush()
+            stdin
+                .flush()
                 .map_err(|e| format!("LSP flush error: {}", e))?;
             Ok(())
         } else {
@@ -199,35 +201,36 @@ impl LspClient {
     fn read_response(&self) -> Result<String, String> {
         let mut guard = self.process.lock().unwrap();
         if let Some(ref mut child) = *guard {
-            let stdout = child.stdout.as_mut()
-                .ok_or("stdout not available")?;
+            let stdout = child.stdout.as_mut().ok_or("stdout not available")?;
             let mut reader = BufReader::new(stdout);
-            
+
             // Read Content-Length header
             let mut header = String::new();
-            reader.read_line(&mut header)
+            reader
+                .read_line(&mut header)
                 .map_err(|e| format!("LSP read error: {}", e))?;
-            
+
             if !header.starts_with("Content-Length:") {
                 return Ok(String::new());
             }
-            
+
             let len: usize = header
                 .trim_start_matches("Content-Length: ")
                 .trim()
                 .parse()
                 .unwrap_or(0);
-            
+
             // Skip empty line after header
             let mut blank = String::new();
             reader.read_line(&mut blank).ok();
-            
+
             // Read body
             let mut body = vec![0u8; len];
             use std::io::Read;
-            reader.read_exact(&mut body)
+            reader
+                .read_exact(&mut body)
                 .map_err(|e| format!("LSP read body error: {}", e))?;
-            
+
             Ok(String::from_utf8_lossy(&body).to_string())
         } else {
             Err("LSP process not running".into())
@@ -266,20 +269,26 @@ fn parse_locations(json: &str) -> Vec<SymbolLocation> {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
         let result = &value["result"];
         match result {
-            serde_json::Value::Array(arr) => arr.iter().filter_map(|loc| {
-                Some(SymbolLocation {
-                    file: loc["uri"].as_str()?.strip_prefix("file://")?.to_string(),
-                    line: loc["range"]["start"]["line"].as_u64()? + 1,
-                    column: loc["range"]["start"]["character"].as_u64()? + 1,
-                    snippet: String::new(),
+            serde_json::Value::Array(arr) => arr
+                .iter()
+                .filter_map(|loc| {
+                    Some(SymbolLocation {
+                        file: loc["uri"].as_str()?.strip_prefix("file://")?.to_string(),
+                        line: loc["range"]["start"]["line"].as_u64()? + 1,
+                        column: loc["range"]["start"]["character"].as_u64()? + 1,
+                        snippet: String::new(),
+                    })
                 })
-            }).collect(),
+                .collect(),
             serde_json::Value::Object(_) => {
                 // Single location
                 vec![SymbolLocation {
-                    file: result["uri"].as_str()
-                        .unwrap_or("").strip_prefix("file://")
-                        .unwrap_or("").to_string(),
+                    file: result["uri"]
+                        .as_str()
+                        .unwrap_or("")
+                        .strip_prefix("file://")
+                        .unwrap_or("")
+                        .to_string(),
                     line: result["range"]["start"]["line"].as_u64().unwrap_or(0) + 1,
                     column: result["range"]["start"]["character"].as_u64().unwrap_or(0) + 1,
                     snippet: String::new(),

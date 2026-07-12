@@ -265,7 +265,7 @@ fn bench_sse_parser_throughput(c: &mut Criterion) {
             &chunks,
             |b, chunks| {
                 let runtime = rt();
-                let owned_chunks: Vec<bytes::Bytes> = chunks.iter().map(|c| c.clone()).collect();
+                let owned_chunks: Vec<bytes::Bytes> = chunks.iter().cloned().collect();
 
                 b.to_async(runtime).iter_batched(
                     || owned_chunks.clone(),
@@ -298,7 +298,7 @@ fn bench_sse_parser_throughput(c: &mut Criterion) {
             &tool_chunks,
             |b, chunks| {
                 let runtime = rt();
-                let owned_chunks: Vec<bytes::Bytes> = chunks.iter().map(|c| c.clone()).collect();
+                let owned_chunks: Vec<bytes::Bytes> = chunks.iter().cloned().collect();
 
                 b.to_async(runtime).iter_batched(
                     || owned_chunks.clone(),

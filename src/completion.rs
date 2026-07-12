@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_len_and_is_empty() {
         let c = CodeCompleter::new();
-        assert!(c.len() > 0);
+        assert!(!c.is_empty());
         assert!(!c.is_empty());
     }
 

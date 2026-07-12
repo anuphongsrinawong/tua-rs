@@ -191,6 +191,9 @@ pub fn load() -> Result<TuaConfig, ConfigError> {
 mod tests {
     use super::*;
 
+    /// A global mutex that serialises tests that modify HOME env var.
+    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn default_config_is_sane() {
         let cfg = TuaConfig::default();
@@ -267,6 +270,7 @@ mod tests {
 
     #[test]
     fn config_path_uses_home_env() {
+        let _lock = HOME_LOCK.lock().unwrap();
         // Save original env vars and set a known HOME
         let original_home = std::env::var("HOME").ok();
         let original_userprofile = std::env::var("USERPROFILE").ok();
@@ -297,9 +301,11 @@ mod tests {
 
     #[test]
     fn load_returns_defaults_when_no_file() {
+        let _lock = HOME_LOCK.lock().unwrap();
         // Temporarily override HOME to a non-existent directory.
         let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", "/tmp/__tua_config_test_nonexistent__");
+        let tmp = std::env::temp_dir().join("__tua_config_test_nonexistent__");
+        std::env::set_var("HOME", tmp.to_str().unwrap());
 
         let result = load();
         // Should be Ok with defaults (no file).
@@ -312,6 +318,7 @@ mod tests {
 
     #[test]
     fn deserialize_invalid_toml_returns_parse_error() {
+        let _lock = HOME_LOCK.lock().unwrap();
         // Use a temp dir with a real config file that has invalid TOML
         let dir = std::env::temp_dir().join("__tua_config_test_invalid__");
         let _ = std::fs::remove_dir_all(&dir);
@@ -342,6 +349,7 @@ tool_timeout_secs = not_a_number"#,
 
     #[test]
     fn load_returns_error_for_inaccessible_file() {
+        let _lock = HOME_LOCK.lock().unwrap();
         // Create a directory at the config path so "reading" it fails
         let dir = std::env::temp_dir().join("__tua_config_test_inaccessible__");
         let _ = std::fs::remove_dir_all(&dir);
@@ -403,6 +411,7 @@ tool_timeout_secs = not_a_number"#,
 
     #[test]
     fn config_path_falls_back_to_dot_on_no_home() {
+        let _lock = HOME_LOCK.lock().unwrap();
         let original_home = std::env::var("HOME").ok();
         let original_userprofile = std::env::var("USERPROFILE").ok();
         std::env::remove_var("HOME");

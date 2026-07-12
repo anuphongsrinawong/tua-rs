@@ -349,7 +349,8 @@ members = [
 
     #[test]
     fn test_detect_workspace_bogus_dir() {
-        let err = detect_workspace("/tmp/nonexistent-rs-project-12345").unwrap_err();
+        let bogus_dir = std::env::temp_dir().join("nonexistent-rs-project-12345");
+        let err = detect_workspace(bogus_dir.to_str().unwrap()).unwrap_err();
         // It should be a CommandFailed or NonZeroExit
         assert!(
             matches!(
@@ -420,8 +421,8 @@ members = [
 
     #[test]
     fn test_single_crate_detected_as_workspace() {
-        /// Even a single-crate project should be detected as a workspace with
-        /// one member (the root package itself).
+        // Even a single-crate project should be detected as a workspace with
+        // one member (the root package itself).
         let proj = TempProject::new();
         proj.write_cargo_toml(&single_crate_toml("my_crate"));
 
@@ -439,7 +440,7 @@ members = [
 
     #[test]
     fn test_multi_member_workspace() {
-        /// A workspace with two members should report both.
+        // A workspace with two members should report both.
         let proj = TempProject::new();
         proj.write_cargo_toml(&workspace_root_toml(&["alpha", "beta"]));
         proj.add_member("alpha", &single_crate_toml("alpha"));
@@ -458,8 +459,8 @@ members = [
 
     #[test]
     fn test_empty_directory_gives_non_zero_exit_error() {
-        /// An existing directory with no Cargo.toml should produce a
-        /// `NonZeroExit` error.
+        // An existing directory with no Cargo.toml should produce a
+        // `NonZeroExit` error.
         let proj = TempProject::new();
         // deliberately NOT writing a Cargo.toml
 
@@ -480,8 +481,8 @@ members = [
 
     #[test]
     fn test_all_members_have_nonempty_fields() {
-        /// Every member in the current workspace must have non-empty `name`,
-        /// `path`, and a non-null `dependencies` vec.
+        // Every member in the current workspace must have non-empty `name`,
+        // `path`, and a non-null `dependencies` vec.
         let ws = detect_workspace(".").expect("should detect workspace");
         assert!(
             !ws.members.is_empty(),
@@ -503,7 +504,7 @@ members = [
 
     #[test]
     fn test_workspace_root_is_absolute() {
-        /// The `Workspace::root` field should be an absolute path.
+        // The `Workspace::root` field should be an absolute path.
         let ws = detect_workspace(".").expect("should detect workspace");
         let root_path = Path::new(&ws.root);
         assert!(
@@ -515,8 +516,8 @@ members = [
 
     #[test]
     fn test_crate_dependencies_included() {
-        /// When a crate declares dependencies, they should appear in
-        /// `CrateInfo::dependencies`.
+        // When a crate declares dependencies, they should appear in
+        // `CrateInfo::dependencies`.
         let proj = TempProject::new();
         proj.write_cargo_toml(&crate_with_deps_toml("with-deps", &["serde", "tokio"]));
 
@@ -540,19 +541,20 @@ members = [
 
     #[test]
     fn test_workspace_serialization_roundtrip() {
-        /// `Workspace` and `CrateInfo` must round-trip through JSON
-        /// serialization / deserialization faithfully.
+        // `Workspace` and `CrateInfo` must round-trip through JSON
+        // serialization / deserialization faithfully.
+        let root = std::env::temp_dir().join("fake-root");
         let ws = Workspace {
-            root: "/tmp/fake-root".into(),
+            root: root.to_string_lossy().to_string(),
             members: vec![
                 CrateInfo {
                     name: "crate-a".into(),
-                    path: "/tmp/fake-root/crate-a".into(),
+                    path: root.join("crate-a").to_string_lossy().to_string(),
                     dependencies: vec!["serde".into(), "tokio".into()],
                 },
                 CrateInfo {
                     name: "crate-b".into(),
-                    path: "/tmp/fake-root/crate-b".into(),
+                    path: root.join("crate-b").to_string_lossy().to_string(),
                     dependencies: vec![],
                 },
             ],
@@ -574,8 +576,8 @@ members = [
 
     #[test]
     fn test_invalid_manifest_toml_syntax() {
-        /// A Cargo.toml with invalid syntax should produce a
-        /// `NonZeroExit` error (cargo metadata will fail to parse it).
+        // A Cargo.toml with invalid syntax should produce a
+        // `NonZeroExit` error (cargo metadata will fail to parse it).
         let proj = TempProject::new();
         // Write garbage that isn't valid TOML
         proj.write_cargo_toml("<<<invalid toml {{{");
@@ -590,8 +592,8 @@ members = [
 
     #[test]
     fn test_detect_subdir_in_workspace() {
-        /// Calling `detect_workspace` from a member crate's subdirectory
-        /// (not the workspace root) should still resolve the full workspace.
+        // Calling `detect_workspace` from a member crate's subdirectory
+        // (not the workspace root) should still resolve the full workspace.
         let proj = TempProject::new();
         proj.write_cargo_toml(&workspace_root_toml(&["member-a"]));
         proj.add_member("member-a", &single_crate_toml("member-a"));

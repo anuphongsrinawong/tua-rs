@@ -270,7 +270,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_text_response() {
         let provider = MockProvider::with_text("Hello, world!");
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -284,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_tool_call() {
         let provider = MockProvider::with_tool_call("cargo", "Compilation successful");
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -301,7 +301,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_thinking() {
         let provider = MockProvider::with_thinking("Let me analyze…", "The answer is 42.");
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -316,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_error() {
         let provider = MockProvider::with_error("Rate limit exceeded");
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -336,7 +336,7 @@ mod tests {
             .done()
             .build();
 
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -363,7 +363,7 @@ mod tests {
             .done()
             .build();
 
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -406,10 +406,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_new_empty() {
-        /// Verify that `MockProvider::new(vec![])` produces a stream
-        /// with no events (default is empty, no Done is injected).
+        // Verify that `MockProvider::new(vec![])` produces a stream
+        // with no events (default is empty, no Done is injected).
         let provider = MockProvider::new(vec![]);
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -423,15 +423,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_new_custom_delay() {
-        /// Verify that `with_delay` overrides the default 50 ms delay
-        /// and events still arrive correctly.
+        // Verify that `with_delay` overrides the default 50 ms delay
+        // and events still arrive correctly.
         let provider = MockProvider::new(vec![
             AgentEvent::TextDelta("alpha".into()),
             AgentEvent::Done,
         ])
         .with_delay(Duration::from_millis(10));
 
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -444,10 +444,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_with_text_single() {
-        /// Verify that `with_text` emits exactly one TextDelta followed by Done,
-        /// even for a very short or empty string.
+        // Verify that `with_text` emits exactly one TextDelta followed by Done,
+        // even for a very short or empty string.
         let provider = MockProvider::with_text("Hi");
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -464,10 +464,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_empty() {
-        /// Edge case: build with no events at all.
-        /// The stream should produce nothing.
+        // Edge case: build with no events at all.
+        // The stream should produce nothing.
         let provider = MockProviderBuilder::new().build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -480,9 +480,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_only_done() {
-        /// Edge case: builder with just `done()` — one Done event only.
+        // Edge case: builder with just `done()` — one Done event only.
         let provider = MockProviderBuilder::new().done().build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -494,12 +494,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_only_error() {
-        /// Builder with just an error event and no done().
-        /// The stream should produce the error event and then stop.
+        // Builder with just an error event and no done().
+        // The stream should produce the error event and then stop.
         let provider = MockProviderBuilder::new()
             .error("Something went wrong")
             .build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -511,7 +511,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_multiple_text_deltas() {
-        /// Builder with many (5) text deltas followed by done.
+        // Builder with many (5) text deltas followed by done.
         let provider = MockProviderBuilder::new()
             .text_delta("one")
             .text_delta(" two")
@@ -520,7 +520,7 @@ mod tests {
             .text_delta(" five")
             .done()
             .build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -538,13 +538,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_thinking_then_text_no_done() {
-        /// Builder with thinking + text but no explicit done().
-        /// The stream should emit just those two events.
+        // Builder with thinking + text but no explicit done().
+        // The stream should emit just those two events.
         let provider = MockProviderBuilder::new()
             .thinking_delta("Hmm…")
             .text_delta("Answer: 42")
             .build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -557,12 +557,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_tool_call_then_result_no_done() {
-        /// Builder with a tool call + result but no done().
+        // Builder with a tool call + result but no done().
         let provider = MockProviderBuilder::new()
             .tool_call("ls", serde_json::json!({"path": "/tmp"}))
             .tool_result("call_1", "file1.txt\nfile2.txt")
             .build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -577,9 +577,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_error_then_done() {
-        /// Builder with an error followed by done.
+        // Builder with an error followed by done.
         let provider = MockProviderBuilder::new().error("Timeout").done().build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -592,7 +592,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_multiple_tool_calls() {
-        /// Builder with two separate tool call+result cycles.
+        // Builder with two separate tool call+result cycles.
         let provider = MockProviderBuilder::new()
             .text_delta("Running tools…")
             .tool_call("curl", serde_json::json!({"url": "https://example.com"}))
@@ -602,7 +602,7 @@ mod tests {
             .text_delta("\nDone.")
             .done()
             .build();
-        let mut stream = provider
+        let stream = provider
             .stream_chat(vec![], String::new(), vec![])
             .await
             .unwrap();
@@ -622,7 +622,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delay_zero() {
-        /// Verify that zero delay produces events instantly.
+        // Verify that zero delay produces events instantly.
         use std::time::Instant;
         let provider = MockProviderBuilder::new()
             .delay(Duration::ZERO)
@@ -647,12 +647,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_stream_calls_same_provider() {
-        /// Verify that the same MockProvider can be used for multiple
-        /// `stream_chat` calls and returns the same events each time.
+        // Verify that the same MockProvider can be used for multiple
+        // `stream_chat` calls and returns the same events each time.
         let provider = MockProvider::with_text("reusable");
 
         for round in 0..3 {
-            let mut stream = provider
+            let stream = provider
                 .stream_chat(vec![], String::new(), vec![])
                 .await
                 .unwrap();
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_builder_default_is_empty() {
-        /// Verify that a default builder has no events and zero delay.
+        // Verify that a default builder has no events and zero delay.
         let builder = MockProviderBuilder::default();
         assert!(
             builder.events.is_empty(),
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_builder_debug_format() {
-        /// Verify Debug formatting does not panic and contains expected info.
+        // Verify Debug formatting does not panic and contains expected info.
         let builder = MockProviderBuilder::new().text_delta("hello").done();
         let debug_str = format!("{:?}", builder);
         assert!(!debug_str.is_empty(), "Debug output should not be empty");
@@ -699,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_mock_provider_debug_format_new() {
-        /// Verify that MockProvider Debug output is well-formed.
+        // Verify that MockProvider Debug output is well-formed.
         let provider = MockProvider::new(vec![AgentEvent::Done]);
         let debug_str = format!("{:?}", provider);
         assert!(!debug_str.is_empty());

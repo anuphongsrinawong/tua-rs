@@ -567,7 +567,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
 
     fn make_provider() -> AnthropicProvider {
         let config = ProviderConfig::new("anthropic", "sk-ant-test", None, "claude-sonnet-4");

@@ -149,7 +149,6 @@ impl ModelProvider for OllamaProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::AgentToolCall;
 
     #[test]
     fn test_ollama_provider_creation() {
