@@ -223,13 +223,37 @@ fn run_subtask(task: &SubTask) -> SubTaskResult {
     let tua_project = format!("{home}/tua-agent");
 
     // Load project context if available
-    let prompt = if let Ok(ctx) = std::fs::read_to_string("PROJECT.md") {
-        format!(
-            "Project context:\n{}\n\n---\n\nTask:\n{}",
-            ctx, task.prompt
-        )
-    } else {
+    let mut context = String::new();
+    
+    // 1. PROJECT.md
+    if let Ok(ctx) = std::fs::read_to_string("PROJECT.md") {
+        context.push_str(&format!("Project context:\n{ctx}\n\n"));
+    }
+    
+    // 2. Vault knowledge base (~/.tua-rs/vault/)
+    let vault = format!("{home}/.tua-rs/vault");
+    if let Ok(entries) = std::fs::read_dir(&vault) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(files) = std::fs::read_dir(&path) {
+                    for f in files.flatten() {
+                        let p = f.path();
+                        if p.extension().is_some_and(|e| e == "md") {
+                            if let Ok(content) = std::fs::read_to_string(&p) {
+                                context.push_str(&format!("---\n{content}\n"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let prompt = if context.is_empty() {
         task.prompt.clone()
+    } else {
+        format!("{context}\n---\n\nTask:\n{}", task.prompt)
     };
 
     let output = Command::new("uv")
