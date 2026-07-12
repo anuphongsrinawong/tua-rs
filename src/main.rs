@@ -55,6 +55,14 @@ enum Commands {
         /// Prefix to complete (e.g. Vec, impl, Option)
         prefix: String,
     },
+    /// Orchestrate multiple agent workers
+    Orchestrate {
+        /// Task description
+        task: String,
+        /// Max parallel workers [default: 4]
+        #[arg(long, default_value = "4")]
+        parallel: usize,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -87,6 +95,12 @@ fn main() -> anyhow::Result<()> {
             match tua_rs::wasm::compile_to_wasm(&path, release) {
                 Ok(output) => println!("✅ Success:\n{output}"),
                 Err(e) => eprintln!("❌ Failed:\n{e}"),
+            }
+        }
+        Some(Commands::Orchestrate { task, parallel }) => {
+            let result = tua_rs::orchestrator::plan_and_run(&task, parallel);
+            if result.failed > 0 {
+                eprintln!("⚠️  {} subtask(s) failed", result.failed);
             }
         }
         Some(Commands::Complete { prefix }) => {

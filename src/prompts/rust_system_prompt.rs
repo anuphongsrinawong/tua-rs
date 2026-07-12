@@ -1693,10 +1693,7 @@ mod tests {
             prompt.contains("Unit Tests"),
             "Missing Unit Tests subsection"
         );
-        assert!(
-            prompt.contains("Doc-tests"),
-            "Missing Doc-tests subsection"
-        );
+        assert!(prompt.contains("Doc-tests"), "Missing Doc-tests subsection");
         assert!(
             prompt.contains("Integration Tests"),
             "Missing Integration Tests subsection"
@@ -1709,18 +1706,9 @@ mod tests {
             prompt.contains("Fuzz Testing"),
             "Missing Fuzz Testing subsection"
         );
-        assert!(
-            prompt.contains("Mocking"),
-            "Missing Mocking subsection"
-        );
-        assert!(
-            prompt.contains("rstest"),
-            "Missing rstest subsection"
-        );
-        assert!(
-            prompt.contains("loom"),
-            "Missing loom subsection"
-        );
+        assert!(prompt.contains("Mocking"), "Missing Mocking subsection");
+        assert!(prompt.contains("rstest"), "Missing rstest subsection");
+        assert!(prompt.contains("loom"), "Missing loom subsection");
         assert!(
             prompt.contains("Test Fixtures"),
             "Missing Test Fixtures subsection"
@@ -1787,10 +1775,7 @@ mod tests {
             prompt.contains("Benchmarking"),
             "Missing Benchmarking subsection"
         );
-        assert!(
-            prompt.contains("Profiling"),
-            "Missing Profiling subsection"
-        );
+        assert!(prompt.contains("Profiling"), "Missing Profiling subsection");
         assert!(
             prompt.contains("inline"),
             "Missing inline guidance subsection"
@@ -1799,10 +1784,7 @@ mod tests {
             prompt.contains("Memory Layout"),
             "Missing memory layout subsection"
         );
-        assert!(
-            prompt.contains("SIMD"),
-            "Missing SIMD subsection"
-        );
+        assert!(prompt.contains("SIMD"), "Missing SIMD subsection");
     }
 
     #[test]
@@ -1820,26 +1802,14 @@ mod tests {
             prompt.contains("cargo clippy"),
             "Missing cargo clippy guidance"
         );
-        assert!(
-            prompt.contains("cargo fmt"),
-            "Missing cargo fmt guidance"
-        );
-        assert!(
-            prompt.contains("cargo test"),
-            "Missing cargo test guidance"
-        );
-        assert!(
-            prompt.contains("cargo doc"),
-            "Missing cargo doc guidance"
-        );
+        assert!(prompt.contains("cargo fmt"), "Missing cargo fmt guidance");
+        assert!(prompt.contains("cargo test"), "Missing cargo test guidance");
+        assert!(prompt.contains("cargo doc"), "Missing cargo doc guidance");
         assert!(
             prompt.contains("cargo audit"),
             "Missing cargo audit guidance"
         );
-        assert!(
-            prompt.contains("cargo deny"),
-            "Missing cargo deny guidance"
-        );
+        assert!(prompt.contains("cargo deny"), "Missing cargo deny guidance");
         assert!(
             prompt.contains("cargo outdated"),
             "Missing cargo outdated guidance"
@@ -1877,10 +1847,7 @@ mod tests {
             prompt.contains("Thinking Blocks"),
             "Missing Thinking Blocks subsection"
         );
-        assert!(
-            prompt.contains("Tradeoffs"),
-            "Missing Tradeoffs subsection"
-        );
+        assert!(prompt.contains("Tradeoffs"), "Missing Tradeoffs subsection");
         assert!(
             prompt.contains("Before/After Comparisons"),
             "Missing Before/After Comparisons subsection"
@@ -1919,7 +1886,10 @@ mod tests {
     #[test]
     fn system_prompt_contains_thiserror_anyhow_eyre_table() {
         let prompt = RUST_SYSTEM_PROMPT;
-        assert!(prompt.contains("| Crate"), "Missing comparison table header");
+        assert!(
+            prompt.contains("| Crate"),
+            "Missing comparison table header"
+        );
         assert!(
             prompt.contains("| `thiserror`"),
             "Missing thiserror in table"
@@ -1946,10 +1916,7 @@ mod tests {
             !prompt.contains("{profile_name}"),
             "unexpanded {{profile_name}}"
         );
-        assert!(
-            !prompt.contains("{tool_list}"),
-            "unexpanded {{tool_list}}"
-        );
+        assert!(!prompt.contains("{tool_list}"), "unexpanded {{tool_list}}");
     }
 
     #[test]

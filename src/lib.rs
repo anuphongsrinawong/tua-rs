@@ -8,6 +8,7 @@ pub mod completion;
 pub mod config;
 pub mod dashboard;
 pub mod learning;
+pub mod orchestrator;
 pub mod parallel;
 pub mod profiles;
 pub mod prompts;

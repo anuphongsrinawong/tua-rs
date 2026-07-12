@@ -888,16 +888,18 @@ mod tests {
             dir.display()
         );
         // The path should be absolute (home dir is absolute)
-        assert!(dir.is_absolute(), "expected absolute path, got: {}", dir.display());
+        assert!(
+            dir.is_absolute(),
+            "expected absolute path, got: {}",
+            dir.display()
+        );
     }
 
     #[test]
     fn test_save_to_default_creates_dir() {
         let session = Session::new("rustacean", "test-model");
-        let tmp = std::env::temp_dir().join(format!(
-            "__tua_save_default_{}__",
-            uuid::Uuid::new_v4()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("__tua_save_default_{}__", uuid::Uuid::new_v4()));
         // Use the save method directly since save_to_default uses ~/.tua-rs
         let path = tmp.join("test.jsonl");
         std::fs::create_dir_all(&tmp).unwrap();
@@ -910,10 +912,7 @@ mod tests {
     #[test]
     fn test_save_to_default_overwrites() {
         let session = Session::new("ferris", "model2");
-        let tmp = std::env::temp_dir().join(format!(
-            "__tua_overwrite_{}__",
-            uuid::Uuid::new_v4()
-        ));
+        let tmp = std::env::temp_dir().join(format!("__tua_overwrite_{}__", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let path = tmp.join("overwrite.jsonl");
         session.save(&path).unwrap();

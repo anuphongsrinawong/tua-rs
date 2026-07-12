@@ -306,7 +306,12 @@ impl FileEdit {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs().to_string())
             .unwrap_or_else(|_| "0".to_string());
-        Self { path, before, after, timestamp }
+        Self {
+            path,
+            before,
+            after,
+            timestamp,
+        }
     }
 
     /// Generate a simple diff string showing what changed.
@@ -680,9 +685,9 @@ impl App {
         let idx: Option<usize> = if arg == "last" {
             Some(tab.edits.len().saturating_sub(1))
         } else {
-            arg.parse::<usize>().ok().and_then(|n| {
-                if n == 0 { None } else { Some(n - 1) }
-            })
+            arg.parse::<usize>()
+                .ok()
+                .and_then(|n| if n == 0 { None } else { Some(n - 1) })
         };
 
         let Some(idx) = idx else {
@@ -690,10 +695,7 @@ impl App {
         };
 
         let Some(edit) = tab.edits.get(idx) else {
-            return format!(
-                "⚠️  Edit #{idx} not found (have {} edits)",
-                tab.edits.len()
-            );
+            return format!("⚠️  Edit #{idx} not found (have {} edits)", tab.edits.len());
         };
 
         format!(
@@ -2156,30 +2158,32 @@ mod tests {
     #[test]
     fn test_diff_single_edit() {
         let mut app = App::new();
-        app.record_edit(
-            "Cargo.toml",
-            "[package] name = old",
-            "[package] name = new",
-        );
+        app.record_edit("Cargo.toml", "[package] name = old", "[package] name = new");
 
         let summary = app.show_diff("");
         assert!(summary.contains("Cargo.toml"), "summary should show path");
         assert!(summary.contains("#0"), "summary should show edit index");
 
         let detail = app.show_diff("0");
-        assert!(
-            detail.contains("Invalid"),
-            "expected 'Invalid' for arg '0'"
-        );
+        assert!(detail.contains("Invalid"), "expected 'Invalid' for arg '0'");
 
         let detail = app.show_diff("1");
         assert!(detail.contains("Cargo.toml"), "detail should show path");
-        assert!(detail.contains("- [package] name = old"), "detail should show removed line");
-        assert!(detail.contains("+ [package] name = new"), "detail should show added line");
+        assert!(
+            detail.contains("- [package] name = old"),
+            "detail should show removed line"
+        );
+        assert!(
+            detail.contains("+ [package] name = new"),
+            "detail should show added line"
+        );
 
         let last = app.show_diff("last");
         assert!(last.contains("Cargo.toml"), "last should show path");
-        assert!(last.contains("- [package] name = old"), "last should show removed line");
+        assert!(
+            last.contains("- [package] name = old"),
+            "last should show removed line"
+        );
     }
 
     /// `show_diff` with "last" argument returns the most recent edit.
@@ -2194,6 +2198,4 @@ mod tests {
         assert!(last.contains("- x"), "last should show - x");
         assert!(last.contains("+ y"), "last should show + y");
     }
-
-
 }
