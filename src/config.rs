@@ -588,7 +588,8 @@ tool_timeout_secs = not_a_number"#,
     #[test]
     fn test_merge_project_config_overrides_global() {
         let mut global = TuaConfig::default();
-        let toml_str = "[project]\nprofile = \"rustacean\"\nself_correction = false\nmax_rounds = 2\n";
+        let toml_str =
+            "[project]\nprofile = \"rustacean\"\nself_correction = false\nmax_rounds = 2\n";
         let project: ProjectConfig = toml::from_str(toml_str).unwrap();
         merge_project_config(&mut global, &project);
         assert_eq!(global.default_profile, "rustacean");
