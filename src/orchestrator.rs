@@ -213,14 +213,27 @@ pub fn plan_parallel_groups(tasks: &[SubTask]) -> Vec<Vec<usize>> {
 /// Run a single subtask via the `uv` tool, returning a [`SubTaskResult`].
 ///
 /// This is used internally by [`orchestrate`] to dispatch work to a Tua worker agent.
+///
+/// If a `PROJECT.md` exists in the current directory, its contents are
+/// prepended to the task prompt so every worker has full project context.
 fn run_subtask(task: &SubTask) -> SubTaskResult {
     let start = Instant::now();
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
     let tua_project = format!("{home}/tua-agent");
 
+    // Load project context if available
+    let prompt = if let Ok(ctx) = std::fs::read_to_string("PROJECT.md") {
+        format!(
+            "Project context:\n{}\n\n---\n\nTask:\n{}",
+            ctx, task.prompt
+        )
+    } else {
+        task.prompt.clone()
+    };
+
     let output = Command::new("uv")
-        .args(["run", "--project", &tua_project, "tua", "-p", &task.prompt])
+        .args(["run", "--project", &tua_project, "tua", "-p", &prompt])
         .output();
 
     let (success, output_str) = match output {
