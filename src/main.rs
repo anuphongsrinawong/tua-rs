@@ -64,7 +64,13 @@ fn main() -> anyhow::Result<()> {
                 cfg.default_profile, cfg.self_correction, cfg.review_enabled);
         }
         Some(Commands::Sessions) => println!("Session persistence: enabled"),
-        Some(Commands::Tui) => println!("🦀 TUI mode — ratatui interface"),
+        Some(Commands::Tui) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let mut app = tua_rs::tui::App::new();
+                app.run()
+            })?;
+        }
         Some(Commands::Bench) => println!("🏃 Benchmarks: cargo bench"),
         Some(Commands::Wasm { path, release }) => {
             let mode = if release { "release" } else { "debug" };

@@ -21,15 +21,20 @@
 //! `/help`, `/profile`, `/model`, `/tools`, `/skills`, `/config`,
 //! `/diff`, `/permissions`, `/sessions`, `/rollback`, `/undo`, `/clear`
 
-use crate::agent::AgentMessage;
+use crate::agent::{AgentEvent, AgentLoop, AgentMessage};
+use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
 use crate::profiles::{self, RustProfile};
+use crate::providers::mock::MockProvider;
+use crate::tools::rust_tools;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use futures::StreamExt;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::io::{Stdout, Write};
+use std::sync::Arc;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -387,6 +392,126 @@ impl App {
             "/undo" => "↩️ Undo: use the `edit` tools with rollback support".into(),
             _ => format!("❓ Unknown command: {command}"),
         }
+    }
+
+    // ── Live TUI run loop ────────────────────────────────────────────
+
+    /// Run the TUI: enter raw mode, render frames, and pump both terminal
+    /// key events and streaming agent events until the user quits
+    /// (`Ctrl+C` or `Ctrl+Q`).
+    ///
+    /// This must be invoked from within a running tokio runtime (for
+    /// example via `Runtime::block_on`), because the agent is driven by a
+    /// background `tokio::spawn` task. The agent uses a [`MockProvider`]
+    /// so it works fully offline with no API key.
+    ///
+    /// When the user presses `Enter` in normal mode, the current input is
+    /// sent as a user message and a background task runs the agent loop,
+    /// forwarding every [`AgentEvent`] into a channel that this render
+    /// loop drains on each frame.
+    pub fn run(&mut self) -> anyhow::Result<()> {
+        // Build a mock-backed agent loop. `with_text` yields a single text
+        // response per turn (no tool calls), so each message completes in
+        // exactly one model round with no real subprocess execution.
+        let provider = Arc::new(MockProvider::with_text(
+            "🦀 Hello from Tua! I'm a mock agent streaming inside the TUI. \
+             Type a message and press Enter to chat.",
+        ));
+        let agent_loop = AgentLoop::new(provider, RUST_SYSTEM_PROMPT.to_string(), rust_tools());
+
+        // Bridge: agent background task → this synchronous render loop.
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+
+        let (_guard, mut terminal) = TerminalGuard::enter()
+            .map_err(|e| anyhow::anyhow!("failed to initialize terminal: {e}"))?;
+
+        while !self.should_quit {
+            // 1. Drain any agent events that arrived since the last frame.
+            self.pump_agent_events(&mut event_rx);
+
+            // 2. Render the current state.
+            terminal.draw(|frame| render(frame, self))?;
+
+            // 3. Poll for a terminal key event (non-blocking, 50 ms timeout
+            //    so the loop stays responsive to streaming agent events).
+            if crossterm::event::poll(Duration::from_millis(50))? {
+                if let Event::Key(key) = event::read()? {
+                    self.handle_tui_key(key, &agent_loop, &event_tx);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Dispatch a single key event, spawning the agent on `Enter`.
+    fn handle_tui_key(
+        &mut self,
+        key: KeyEvent,
+        agent_loop: &AgentLoop,
+        event_tx: &tokio::sync::mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+
+        // Enter in normal mode → send the message and spawn the agent.
+        if self.mode == AppMode::Normal && key.code == KeyCode::Enter {
+            if self.send_message() {
+                let messages = self
+                    .active_tab()
+                    .map(|tab| tab.messages.clone())
+                    .unwrap_or_default();
+                let loop_clone = agent_loop.clone();
+                let tx = event_tx.clone();
+                tokio::spawn(async move {
+                    let mut stream = loop_clone.run(messages);
+                    while let Some(event) = stream.next().await {
+                        if tx.send(event).is_err() {
+                            // TUI exited and dropped the receiver — stop.
+                            break;
+                        }
+                    }
+                });
+            }
+            return;
+        }
+
+        // All other keys reuse the existing handler (tabs, palette, quit…).
+        handle_key_event(self, key);
+    }
+
+    /// Drain every available agent event into the active tab.
+    fn pump_agent_events(&mut self, rx: &mut tokio::sync::mpsc::UnboundedReceiver<AgentEvent>) {
+        while let Ok(event) = rx.try_recv() {
+            self.apply_agent_event(event);
+        }
+    }
+
+    /// Apply a single streamed [`AgentEvent`] to the active tab's history.
+    fn apply_agent_event(&mut self, event: AgentEvent) {
+        let Some(tab) = self.active_tab_mut() else {
+            return;
+        };
+        match event {
+            AgentEvent::TextDelta(text) => append_assistant(tab, text),
+            AgentEvent::ThinkingDelta(text) => append_assistant(tab, format!("\n💭 {text}")),
+            AgentEvent::ToolCall(call) => {
+                append_assistant(tab, format!("\n🔧 {}({})", call.name, call.arguments));
+            }
+            AgentEvent::ToolResult { output, .. } => {
+                let marker = if output.to_lowercase().contains("error") {
+                    "⚠️"
+                } else {
+                    "✅"
+                };
+                append_assistant(tab, format!("\n{marker} {}", truncate(&output, 120)));
+            }
+            AgentEvent::Error(msg) => append_assistant(tab, format!("\n❌ {msg}")),
+            AgentEvent::Done => {}
+        }
+        tab.scroll_offset = 0;
+        self.update_token_count();
     }
 }
 
@@ -865,8 +990,9 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Ctrl+C always quits
-    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+    // Ctrl+C or Ctrl+Q always quits
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('q')) {
         app.should_quit = true;
         return;
     }
@@ -971,6 +1097,22 @@ fn handle_palette_key(app: &mut App, key: KeyEvent) {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+/// Append `text` to the last assistant message in `tab`, creating a fresh
+/// assistant message if the last message is not an assistant turn (or the
+/// tab is empty).
+fn append_assistant(tab: &mut Tab, text: String) {
+    match tab.messages.last_mut() {
+        Some(AgentMessage::Assistant { text: slot, .. }) => {
+            if let Some(existing) = slot {
+                existing.push_str(&text);
+            } else {
+                *slot = Some(text);
+            }
+        }
+        _ => tab.messages.push(AgentMessage::assistant(Some(text), vec![])),
+    }
+}
 
 /// Truncate a string to at most `max` characters, appending `...` if truncated.
 fn truncate(s: &str, max: usize) -> String {
