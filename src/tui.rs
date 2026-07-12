@@ -197,19 +197,6 @@ fn default_provider_model(providers: &[ProviderInfo]) -> (String, String) {
 // Types
 // ---------------------------------------------------------------------------
 
-/// A record of a file edit tracked in the session.
-#[derive(Debug, Clone)]
-pub struct FileEdit {
-    /// Path of the file that was edited.
-    pub path: String,
-    /// Content before the edit.
-    pub before: String,
-    /// Content after the edit.
-    pub after: String,
-    /// Timestamp when the edit was recorded.
-    pub timestamp: String,
-}
-
 /// State for the provider/model picker overlay.
 #[derive(Debug, Clone, Default)]
 pub struct Picker {
@@ -303,22 +290,28 @@ impl Tab {
 #[derive(Debug, Clone)]
 pub struct FileEdit {
     /// Path to the file that was edited.
-    pub path: PathBuf,
+    pub path: String,
     /// The original content before the edit.
     pub before: String,
     /// The new content after the edit.
     pub after: String,
+    /// Timestamp when the edit was recorded.
+    pub timestamp: String,
 }
 
 impl FileEdit {
     /// Create a new `FileEdit`.
-    pub fn new(path: PathBuf, before: String, after: String) -> Self {
-        Self { path, before, after }
+    pub fn new(path: String, before: String, after: String) -> Self {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string());
+        Self { path, before, after, timestamp }
     }
 
     /// Generate a simple diff string showing what changed.
     pub fn diff(&self) -> String {
-        simple_diff(&self.path, &self.before, &self.after)
+        simple_diff(&self.before, &self.after)
     }
 }
 
@@ -446,6 +439,7 @@ impl App {
 
         let mut app = Self {
             tabs: vec![tab],
+            edits: vec![Vec::new()],
             active_tab: 0,
             input_buffer: String::new(),
             messages: vec![format!(
@@ -639,47 +633,7 @@ impl App {
     /// The output uses `-` and `+` prefixes for removed/added lines, and
     /// includes surrounding context lines for readability.
     fn simple_diff(&self, before: &str, after: &str) -> String {
-        let before_lines: Vec<&str> = before.lines().collect();
-        let after_lines: Vec<&str> = after.lines().collect();
-
-        if before_lines == after_lines {
-            return "  (no changes)".to_string();
-        }
-
-        let prefix_len = before_lines
-            .iter()
-            .zip(after_lines.iter())
-            .take_while(|(a, b)| a == b)
-            .count();
-
-        let suffix_len = before_lines
-            .iter()
-            .rev()
-            .zip(after_lines.iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-
-        let mut result = String::new();
-        if prefix_len > 0 {
-            result.push_str("@@ ... @@\n");
-        }
-        let ctx_start = prefix_len.saturating_sub(3);
-        for i in ctx_start..prefix_len {
-            result.push_str(&format!("  {}\n", before_lines[i]));
-        }
-        for i in prefix_len..before_lines.len().saturating_sub(suffix_len) {
-            result.push_str(&format!("- {}\n", before_lines[i]));
-        }
-        for i in prefix_len..after_lines.len().saturating_sub(suffix_len) {
-            result.push_str(&format!("+ {}\n", after_lines[i]));
-        }
-        let after_end = after_lines.len().saturating_sub(suffix_len);
-        for i in after_end..std::cmp::min(after_end + 3, after_lines.len()) {
-            if let Some(line) = after_lines.get(i) {
-                result.push_str(&format!("  {}\n", line));
-            }
-        }
-        result
+        simple_diff(before, after)
     }
 
     /// Show a formatted diff from the active tab's edit history.
@@ -1817,6 +1771,52 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Produce a simple line-based unified diff between two text strings.
+///
+/// The output uses `-` and `+` prefixes for removed/added lines, and
+/// includes surrounding context lines for readability.
+fn simple_diff(before: &str, after: &str) -> String {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+
+    if before_lines == after_lines {
+        return "  (no changes)".to_string();
+    }
+
+    let prefix_len = before_lines
+        .iter()
+        .zip(after_lines.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let suffix_len = before_lines
+        .iter()
+        .rev()
+        .zip(after_lines.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut result = String::new();
+    if prefix_len > 0 {
+        result.push_str("@@ ... @@\n");
+    }
+    let ctx_start = prefix_len.saturating_sub(3);
+    for line in &before_lines[ctx_start..prefix_len] {
+        result.push_str(&format!("  {line}\n"));
+    }
+    for line in &before_lines[prefix_len..before_lines.len().saturating_sub(suffix_len)] {
+        result.push_str(&format!("- {line}\n"));
+    }
+    for line in &after_lines[prefix_len..after_lines.len().saturating_sub(suffix_len)] {
+        result.push_str(&format!("+ {line}\n"));
+    }
+    let after_end = after_lines.len().saturating_sub(suffix_len);
+    for line in &after_lines[after_end..std::cmp::min(after_end + 3, after_lines.len())] {
+        result.push_str(&format!("  {line}\n"));
+    }
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -2174,12 +2174,12 @@ mod tests {
 
         let detail = app.show_diff("1");
         assert!(detail.contains("Cargo.toml"), "detail should show path");
-        assert!(detail.contains("- old"), "detail should show removed line");
-        assert!(detail.contains("+ new"), "detail should show added line");
+        assert!(detail.contains("- [package] name = old"), "detail should show removed line");
+        assert!(detail.contains("+ [package] name = new"), "detail should show added line");
 
         let last = app.show_diff("last");
         assert!(last.contains("Cargo.toml"), "last should show path");
-        assert!(last.contains("- old"), "last should show removed line");
+        assert!(last.contains("- [package] name = old"), "last should show removed line");
     }
 
     /// `show_diff` with "last" argument returns the most recent edit.
