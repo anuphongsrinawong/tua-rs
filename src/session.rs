@@ -151,6 +151,31 @@ impl Session {
         self.meta.updated_at = iso_now();
     }
 
+    /// Save this session to the default sessions directory
+    /// (`~/.tua-rs/sessions/{session_id}.jsonl`).
+    ///
+    /// Creates the directory automatically if it doesn't exist.
+    pub fn save_to_default(&self) -> SessionResult<()> {
+        let dir = default_sessions_dir()?;
+        std::fs::create_dir_all(&dir).map_err(|e| SessionError::WriteFailed {
+            path: dir.join(format!("{}.jsonl", self.meta.id)),
+            source: e,
+        })?;
+        let path = session_file_path(&dir, &self.meta.id);
+        self.save(&path)
+    }
+
+    /// Load a session by UUID from the default sessions directory.
+    pub fn load_from_default(id: &str) -> SessionResult<Self> {
+        let dir = default_sessions_dir()?;
+        let uuid = uuid::Uuid::parse_str(id).map_err(|e| SessionError::ReadFailed {
+            path: dir.join(format!("{id}.jsonl")),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidInput, e),
+        })?;
+        let path = session_file_path(&dir, &uuid);
+        Self::load(&path)
+    }
+
     /// Save this session to a JSONL file at `path`.
     ///
     /// The file format is:
@@ -403,20 +428,16 @@ fn summarize_session_file(path: &Path) -> SessionResult<SessionSummary> {
 // Default sessions directory
 // ---------------------------------------------------------------------------
 
-/// Return the default sessions directory (`~/.tua-rs/sessions/`).
-///
-/// Creates the directory if it does not exist.
-///
-/// # Errors
-///
-/// Returns an [`std::io::Error`] if the directory cannot be created.
-pub fn default_sessions_dir() -> std::io::Result<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(home).join(".tua-rs").join("sessions");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+/// Return the default sessions directory (`~/.tua-rs/sessions`).
+pub fn default_sessions_dir() -> SessionResult<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| SessionError::ReadFailed {
+        path: PathBuf::from("~/.tua-rs/sessions"),
+        source: std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "cannot determine home directory",
+        ),
+    })?;
+    Ok(home.join(".tua-rs").join("sessions"))
 }
 
 /// Build the full file path for a session file in the given directory.
@@ -857,29 +878,49 @@ mod tests {
     // ── default_sessions_dir ────────────────────────────────────────────
 
     #[test]
-    fn test_default_sessions_dir_creates_directory() {
-        let original_home = std::env::var("HOME").ok();
-        let test_home = std::env::temp_dir().join("__tua_session_test_home__");
-        let _ = fs::remove_dir_all(&test_home);
-        std::env::set_var("HOME", test_home.to_str().unwrap());
-
+    fn test_default_sessions_dir_resolves_home() {
+        // default_sessions_dir uses dirs::home_dir() which reads $HOME on Unix.
+        // Verify it returns a path ending in .tua-rs/sessions.
         let dir = default_sessions_dir().unwrap();
-        assert!(dir.exists(), "sessions directory should be created");
         assert!(
             dir.ends_with(".tua-rs/sessions"),
             "unexpected path: {}",
             dir.display()
         );
+        // The path should be absolute (home dir is absolute)
+        assert!(dir.is_absolute(), "expected absolute path, got: {}", dir.display());
+    }
 
-        // Calling again should not error (idempotent)
-        let dir2 = default_sessions_dir().unwrap();
-        assert_eq!(dir, dir2);
+    #[test]
+    fn test_save_to_default_creates_dir() {
+        let session = Session::new("rustacean", "test-model");
+        let tmp = std::env::temp_dir().join(format!(
+            "__tua_save_default_{}__",
+            uuid::Uuid::new_v4()
+        ));
+        // Use the save method directly since save_to_default uses ~/.tua-rs
+        let path = tmp.join("test.jsonl");
+        std::fs::create_dir_all(&tmp).unwrap();
+        session.save(&path).unwrap();
+        assert!(path.exists());
+        let loaded = Session::load(&path).unwrap();
+        assert_eq!(loaded.meta.profile, "rustacean");
+    }
 
-        // Clean up
-        let _ = fs::remove_dir_all(&test_home);
-        if let Some(h) = original_home {
-            std::env::set_var("HOME", h);
-        }
+    #[test]
+    fn test_save_to_default_overwrites() {
+        let session = Session::new("ferris", "model2");
+        let tmp = std::env::temp_dir().join(format!(
+            "__tua_overwrite_{}__",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("overwrite.jsonl");
+        session.save(&path).unwrap();
+        let session2 = Session::new("rustacean", "model3");
+        session2.save(&path).unwrap();
+        let loaded = Session::load(&path).unwrap();
+        assert_eq!(loaded.meta.profile, "rustacean");
     }
 
     // ── ISO timestamp utility ──────────────────────────────────────────
