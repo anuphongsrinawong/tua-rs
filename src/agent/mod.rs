@@ -495,6 +495,23 @@ impl AgentLoop {
                 }
                 tool_rounds += 1;
 
+                // --- Context Guard: auto-compact at 80% threshold ---
+                let used = crate::context_guard::estimate_tokens(&current_messages);
+                let max = crate::context_guard::model_max_tokens("deepseek-v4-flash");
+                let pct = (used as f64 / max as f64 * 100.0) as u8;
+                if pct >= 80 {
+                    crate::context_guard::compact_messages(&mut current_messages, 5);
+                    let _ = tx.try_send(AgentEvent::TextDelta(format!(
+                        "\n🔴 Context compacted ({}K/{}K — {}%) — keeping last 5 turns\n",
+                        used / 1000, max / 1000, pct
+                    )));
+                } else if pct >= 60 {
+                    let _ = tx.try_send(AgentEvent::TextDelta(format!(
+                        "\n🟡 Context: {}K/{}K ({}%)\n",
+                        used / 1000, max / 1000, pct
+                    )));
+                }
+
                 // --- Call the model ---
                 let stream = match provider
                     .stream_chat(current_messages.clone(), system.clone(), tools.clone())

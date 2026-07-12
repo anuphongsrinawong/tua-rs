@@ -7,6 +7,7 @@ pub mod checkpoint;
 pub mod completion;
 pub mod config;
 pub mod context;
+pub mod context_guard;
 pub mod dashboard;
 pub mod learning;
 pub mod orchestrator;
