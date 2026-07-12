@@ -355,13 +355,6 @@ impl Default for AgentConfig {
     }
 }
 
-/// Configuration for the self-correction subsystem.
-///
-/// When self-correction is enabled, the harness runs `cargo check` after
-/// every tool execution round that modifies `.rs` files. If compilation
-/// errors are detected, they are fed back to the model as a
-/// [`AgentMessage::User`] so it can attempt to fix them automatically.
-
 // ── State Machine Loop ───────────────────────────────────────────────
 
 /// Agent execution phase (Finite State Machine).
@@ -524,12 +517,16 @@ impl AgentLoop {
                     crate::context_guard::compact_messages(&mut current_messages, 5);
                     let _ = tx.try_send(AgentEvent::TextDelta(format!(
                         "\n🔴 Context compacted ({}K/{}K — {}%) — keeping last 5 turns\n",
-                        used / 1000, max / 1000, pct
+                        used / 1000,
+                        max / 1000,
+                        pct
                     )));
                 } else if pct >= 60 {
                     let _ = tx.try_send(AgentEvent::TextDelta(format!(
                         "\n🟡 Context: {}K/{}K ({}%)\n",
-                        used / 1000, max / 1000, pct
+                        used / 1000,
+                        max / 1000,
+                        pct
                     )));
                 }
 
@@ -691,7 +688,7 @@ impl AgentLoop {
 pub fn extract_and_explain_errors(compiler_output: &str) -> String {
     use std::collections::BTreeSet;
     use std::process::Command;
-    
+
     // Find all unique error codes: E0XXX or E1XXX
     let mut codes = BTreeSet::new();
     for word in compiler_output.split(|c: char| !c.is_alphanumeric()) {
@@ -699,14 +696,17 @@ pub fn extract_and_explain_errors(compiler_output: &str) -> String {
             codes.insert(word.to_string());
         }
     }
-    
+
     if codes.is_empty() {
         return String::new();
     }
-    
+
     let mut explain = String::from("## 📖 Rust Compiler Documentation\n\n");
-    explain.push_str(&format!("Detected {} unique error code(s):\n\n", codes.len()));
-    
+    explain.push_str(&format!(
+        "Detected {} unique error code(s):\n\n",
+        codes.len()
+    ));
+
     for code in codes.iter().take(5) {
         // Run rustc --explain
         let output = Command::new("rustc")
@@ -715,24 +715,20 @@ pub fn extract_and_explain_errors(compiler_output: &str) -> String {
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_else(|| format!("(no explanation available for {code})"));
-        
+
         // Truncate long explanations to avoid context bloat
-        let truncated: String = output
-            .lines()
-            .take(30)
-            .collect::<Vec<_>>()
-            .join("\n");
-        
+        let truncated: String = output.lines().take(30).collect::<Vec<_>>().join("\n");
+
         explain.push_str(&format!("### {code}\n```\n{truncated}\n```\n\n"));
     }
-    
+
     if codes.len() > 5 {
         explain.push_str(&format!(
             "_({} additional error codes not shown — fix these first, then re-run)_\n",
             codes.len() - 5
         ));
     }
-    
+
     explain
 }
 

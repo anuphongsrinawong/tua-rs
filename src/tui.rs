@@ -1510,14 +1510,16 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     let profile_text = format!(" {} {} ", profile.emoji, profile.name);
     let tools_text = format!(" 🔧 {} tools ", app.tools_count);
-    
+
     // Context guard: show token usage relative to model's max window
-    let model = app.tabs.get(app.active_tab)
+    let model = app
+        .tabs
+        .get(app.active_tab)
         .map(|t| t.model.as_str())
         .unwrap_or("deepseek-v4-flash");
     let status = crate::context_guard::ContextStatus::check(&[], model);
     let ctx_text = format!(" {} ", status.render_bar(15));
-    
+
     let help_text = " Ctrl+P:palette  Ctrl+T:tab  Ctrl+W:close  Ctrl+C:quit ";
 
     // Pad the status bar

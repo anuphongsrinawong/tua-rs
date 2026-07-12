@@ -227,36 +227,52 @@ fn run_subtask(task: &SubTask) -> SubTaskResult {
     // Uses all 5 levels to produce a compressed, relevant context
     // that never overflows the model's context window.
     let vault = format!("{home}/.tua-rs/vault");
-    
+
     // Load raw materials
     let project_md = std::fs::read_to_string("PROJECT.md").unwrap_or_default();
     let rules: Vec<String> = ["rules/rust-do.md", "rules/rust-dont.md"]
         .iter()
         .filter_map(|r| std::fs::read_to_string(format!("{vault}/{r}")).ok())
         .collect();
-    
+
     // Level 5: keyword-matched errors
-    let error_matches: Vec<String> = if let Ok(err_dir) = std::fs::read_dir(format!("{vault}/errors")) {
-        err_dir.flatten()
-            .filter(|e| {
-                let fname = e.path().file_stem().unwrap_or_default().to_string_lossy().into_owned();
-                task.description.contains(&fname) || task.prompt.contains(&fname)
-            })
-            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-            .collect()
-    } else { vec![] };
-    
+    let error_matches: Vec<String> =
+        if let Ok(err_dir) = std::fs::read_dir(format!("{vault}/errors")) {
+            err_dir
+                .flatten()
+                .filter(|e| {
+                    let fname = e
+                        .path()
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
+                    task.description.contains(&fname) || task.prompt.contains(&fname)
+                })
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+                .collect()
+        } else {
+            vec![]
+        };
+
     // Level 2: summarized recent sessions
-    let sessions: Vec<String> = if let Ok(sess_dir) = std::fs::read_dir(format!("{vault}/sessions")) {
-        let mut files: Vec<_> = sess_dir.flatten()
+    let sessions: Vec<String> = if let Ok(sess_dir) = std::fs::read_dir(format!("{vault}/sessions"))
+    {
+        let mut files: Vec<_> = sess_dir
+            .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
             .collect();
         files.sort_by_key(|e| e.file_name());
-        files.iter().rev().take(3)
+        files
+            .iter()
+            .rev()
+            .take(3)
             .filter_map(|e| std::fs::read_to_string(e.path()).ok())
             .collect()
-    } else { vec![] };
-    
+    } else {
+        vec![]
+    };
+
     // Level 6+4: compress for worker (orchestrator summarizes, module chunking)
     let context = context::compress_for_worker(
         &task.prompt,
@@ -266,7 +282,7 @@ fn run_subtask(task: &SubTask) -> SubTaskResult {
         &sessions,
         50_000, // ~12.5K tokens — safe for all models
     );
-    
+
     let prompt = format!("{context}\n\nTask:\n{}", task.prompt);
 
     let output = Command::new("uv")

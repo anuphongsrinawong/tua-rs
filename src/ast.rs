@@ -103,19 +103,19 @@ pub fn parse_skeleton(source: &str, file_path: &str) -> ModuleSkeleton {
         }
 
         // Struct
-        if let Some(name) = extract_item_name(trimmed, "struct ") {
+        if let Some(name) = extract_item_name_anywhere(trimmed, "struct ") {
             structs.push(name);
             continue;
         }
 
         // Enum
-        if let Some(name) = extract_item_name(trimmed, "enum ") {
+        if let Some(name) = extract_item_name_anywhere(trimmed, "enum ") {
             enums.push(name);
             continue;
         }
 
         // Trait
-        if let Some(name) = extract_item_name(trimmed, "trait ") {
+        if let Some(name) = extract_item_name_anywhere(trimmed, "trait ") {
             traits.push(name);
             continue;
         }
@@ -123,8 +123,7 @@ pub fn parse_skeleton(source: &str, file_path: &str) -> ModuleSkeleton {
         // Impl blocks
         if trimmed.starts_with("impl ") {
             let body = trimmed.strip_prefix("impl ").unwrap_or("");
-            let name = body.split(|c: char| c == '<' || c == '{' || c == ' ')
-                .next().unwrap_or("").to_string();
+            let name = body.split(['<', '{', ' ']).next().unwrap_or("").to_string();
             if !name.is_empty() {
                 impls.push(name);
             }
@@ -154,7 +153,7 @@ pub fn parse_directory(dir: &Path) -> HashMap<String, ModuleSkeleton> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "rs") {
+            if path.extension().is_some_and(|e| e == "rs") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let name = path.to_string_lossy().to_string();
                     map.insert(name.clone(), parse_skeleton(&content, &name));
@@ -179,7 +178,8 @@ pub fn render_compact(skeleton: &ModuleSkeleton) -> String {
     }
     out.push_str("\n**Functions:**\n");
     for f in &skeleton.functions {
-        out.push_str(&format!("- `{} {}fn {}({})`\n",
+        out.push_str(&format!(
+            "- `{} {}fn {}({})`\n",
             f.visibility,
             if f.is_async { "async " } else { "" },
             f.name,
@@ -194,10 +194,13 @@ pub fn render_compact(skeleton: &ModuleSkeleton) -> String {
 // ---------------------------------------------------------------------------
 
 fn extract_fn_name(line: &str) -> Option<String> {
-    let trimmed = line.trim_start_matches("pub ").trim_start_matches("pub(crate) ");
-    let trimmed = trimmed.trim_start_matches("async ").trim_start_matches("unsafe ");
-    if trimmed.starts_with("fn ") {
-        let rest = &trimmed[3..];
+    let trimmed = line
+        .trim_start_matches("pub ")
+        .trim_start_matches("pub(crate) ");
+    let trimmed = trimmed
+        .trim_start_matches("async ")
+        .trim_start_matches("unsafe ");
+    if let Some(rest) = trimmed.strip_prefix("fn ") {
         rest.split('(').next().map(|s| s.trim().to_string())
     } else {
         None
@@ -205,19 +208,23 @@ fn extract_fn_name(line: &str) -> Option<String> {
 }
 
 fn extract_visibility(line: &str) -> String {
-    if line.starts_with("pub(crate)") { return "pub(crate)".into(); }
-    if line.starts_with("pub ") { return "pub".into(); }
+    if line.starts_with("pub(crate)") {
+        return "pub(crate)".into();
+    }
+    if line.starts_with("pub ") {
+        return "pub".into();
+    }
     String::new()
 }
 
 fn extract_params(line: &str) -> Vec<String> {
     if let Some(start) = line.find('(') {
         if let Some(end) = line.find(')') {
-            let params = &line[start+1..end];
-            if params.trim().is_empty() { return vec![]; }
-            return params.split(',')
-                .map(|p| p.trim().to_string())
-                .collect();
+            let params = &line[start + 1..end];
+            if params.trim().is_empty() {
+                return vec![];
+            }
+            return params.split(',').map(|p| p.trim().to_string()).collect();
         }
     }
     vec![]
@@ -225,7 +232,7 @@ fn extract_params(line: &str) -> Vec<String> {
 
 fn extract_return_type(line: &str) -> Option<String> {
     if let Some(pos) = line.find("->") {
-        let rest = &line[pos+2..];
+        let rest = &line[pos + 2..];
         let ret = rest.split('{').next().unwrap_or(rest);
         Some(ret.trim().to_string())
     } else {
@@ -236,12 +243,28 @@ fn extract_return_type(line: &str) -> Option<String> {
 fn extract_item_name(line: &str, prefix: &str) -> Option<String> {
     if let Some(rest) = line.strip_prefix(prefix) {
         let rest = rest.trim_start();
-        rest.split(|c: char| c == '<' || c == '{' || c == '(' || c == ';' || c == ' ')
+        rest.split(['<', '{', '(', ';', ' '])
             .next()
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
     } else {
         None
+    }
+}
+
+/// Like extract_item_name, but finds the prefix ANYWHERE in the line
+/// (not just at the start). Used for patterns like "pub struct X".
+fn extract_item_name_anywhere(line: &str, keyword: &str) -> Option<String> {
+    if let Some(pos) = line.find(keyword) {
+        let rest = &line[pos + keyword.len()..];
+        let rest = rest.trim_start();
+        rest.split(['<', '{', '(', ';', ' '])
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    } else {
+        // Fallback to prefix-based lookup
+        extract_item_name(line, keyword)
     }
 }
 
@@ -263,7 +286,12 @@ mod tests {
     fn test_parse_struct() {
         let src = "pub struct Config { pub debug: bool }";
         let skeleton = parse_skeleton(src, "test.rs");
-        assert_eq!(skeleton.structs.len(), 1);
+        assert_eq!(
+            skeleton.structs.len(),
+            1,
+            "expected 1 struct, got: {:?}",
+            skeleton.structs
+        );
         assert_eq!(skeleton.structs[0], "Config");
     }
 
@@ -278,7 +306,7 @@ mod tests {
     fn test_render_compact() {
         let skeleton = parse_skeleton(
             "pub fn add(a: i32, b: i32) -> i32 { a + b }\npub struct Point { x: i32 }",
-            "test.rs"
+            "test.rs",
         );
         let rendered = render_compact(&skeleton);
         assert!(rendered.contains("add"));

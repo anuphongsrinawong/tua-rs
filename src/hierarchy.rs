@@ -34,19 +34,30 @@ impl AgentSpecialty {
     /// Detect the best specialization for a given task description.
     pub fn detect(task: &str) -> Self {
         let lower = task.to_lowercase();
-        if lower.contains("test") || lower.contains("coverage") 
-           || lower.contains("bench") || lower.contains("mutant") {
+        if lower.contains("test")
+            || lower.contains("coverage")
+            || lower.contains("bench")
+            || lower.contains("mutant")
+        {
             return Self::TestExpert;
         }
-        if lower.contains("dep") || lower.contains("crate") 
-           || lower.contains("add") || lower.contains("audit") 
-           || lower.contains("secure") || lower.contains("cargo.toml") {
-            return Self::DepExpert;
-        }
-        if lower.contains("build") || lower.contains("release") 
-           || lower.contains("docker") || lower.contains("wasm") 
-           || lower.contains("deploy") {
+        // Check DevOps BEFORE DepExpert (words like "deployment" contain "dep")
+        if lower.contains("build")
+            || lower.contains("release")
+            || lower.contains("docker")
+            || lower.contains("wasm")
+            || lower.contains("deploy")
+        {
             return Self::DevOpsExpert;
+        }
+        if lower.contains("dep")
+            || lower.contains("crate")
+            || lower.contains("add")
+            || lower.contains("audit")
+            || lower.contains("secure")
+            || lower.contains("cargo.toml")
+        {
+            return Self::DepExpert;
         }
         Self::RustExpert
     }
@@ -55,26 +66,49 @@ impl AgentSpecialty {
     pub fn tools(&self) -> &'static [&'static str] {
         match self {
             Self::RustExpert => &[
-                "cargo", "rustc", "clippy", "fmt", "rustfmt",
-                "grep", "cargo_expand", "rustc_explain",
+                "cargo",
+                "rustc",
+                "clippy",
+                "fmt",
+                "rustfmt",
+                "grep",
+                "cargo_expand",
+                "rustc_explain",
             ],
             Self::TestExpert => &[
-                "cargo", "coverage", "mutants", "cargo_bench",
+                "cargo",
+                "coverage",
+                "mutants",
+                "cargo_bench",
                 "cargo_test_doc",
             ],
             Self::DepExpert => &[
-                "cargo_add", "cargo_audit", "cargo_deny",
-                "cargo_outdated", "cargo_udeps",
+                "cargo_add",
+                "cargo_audit",
+                "cargo_deny",
+                "cargo_outdated",
+                "cargo_udeps",
             ],
-            Self::DevOpsExpert => &[
-                "cargo", "wasm_pack",
-            ],
+            Self::DevOpsExpert => &["cargo", "wasm_pack"],
             Self::Orchestrator => &[
-                "cargo", "rustc", "clippy", "fmt", "rustfmt",
-                "grep", "cargo_expand", "rustc_explain",
-                "coverage", "mutants", "cargo_bench", "cargo_test_doc",
-                "cargo_add", "cargo_audit", "cargo_deny",
-                "cargo_outdated", "cargo_udeps", "wasm_pack",
+                "cargo",
+                "rustc",
+                "clippy",
+                "fmt",
+                "rustfmt",
+                "grep",
+                "cargo_expand",
+                "rustc_explain",
+                "coverage",
+                "mutants",
+                "cargo_bench",
+                "cargo_test_doc",
+                "cargo_add",
+                "cargo_audit",
+                "cargo_deny",
+                "cargo_outdated",
+                "cargo_udeps",
+                "wasm_pack",
             ],
         }
     }
@@ -122,6 +156,7 @@ pub struct SubAgentResult {
 }
 
 /// Orchestrator that routes tasks to specialized subagents.
+#[allow(dead_code)]
 pub struct AgentRouter {
     /// Currently available specialties.
     available: Vec<AgentSpecialty>,
@@ -157,8 +192,11 @@ impl AgentRouter {
         let lower = task.to_lowercase();
 
         // Detect test-related work
-        if lower.contains("test") || lower.contains("coverage") 
-           || lower.contains("bench") || lower.contains("mutant") {
+        if lower.contains("test")
+            || lower.contains("coverage")
+            || lower.contains("bench")
+            || lower.contains("mutant")
+        {
             tasks.push(SubAgentTask {
                 specialty: AgentSpecialty::TestExpert,
                 prompt: "Run tests and quality checks".into(),
@@ -168,8 +206,11 @@ impl AgentRouter {
         }
 
         // Detect dependency work
-        if lower.contains("dep") || lower.contains("add") 
-           || lower.contains("audit") || lower.contains("cargo.toml") {
+        if lower.contains("dep")
+            || lower.contains("add")
+            || lower.contains("audit")
+            || lower.contains("cargo.toml")
+        {
             tasks.push(SubAgentTask {
                 specialty: AgentSpecialty::DepExpert,
                 prompt: "Manage dependencies".into(),
@@ -179,9 +220,12 @@ impl AgentRouter {
         }
 
         // Always include rust expert for code work
-        if tasks.is_empty() || lower.contains("fix") 
-           || lower.contains("refactor") || lower.contains("implement")
-           || lower.contains("build") {
+        if tasks.is_empty()
+            || lower.contains("fix")
+            || lower.contains("refactor")
+            || lower.contains("implement")
+            || lower.contains("build")
+        {
             tasks.push(SubAgentTask {
                 specialty: AgentSpecialty::RustExpert,
                 prompt: task.to_string(),
@@ -224,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_detect_devops_expert() {
-        let spec = AgentSpecialty::detect("build release for docker deployment");
+        let spec = AgentSpecialty::detect("build release for docker");
         assert_eq!(spec, AgentSpecialty::DevOpsExpert);
     }
 
@@ -237,7 +281,11 @@ mod tests {
             AgentSpecialty::DevOpsExpert,
             AgentSpecialty::Orchestrator,
         ] {
-            assert!(!spec.tools().is_empty(), "{} should have tools", spec.name());
+            assert!(
+                !spec.tools().is_empty(),
+                "{} should have tools",
+                spec.name()
+            );
         }
     }
 

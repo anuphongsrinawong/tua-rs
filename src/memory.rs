@@ -91,7 +91,10 @@ impl WorkingMemory {
         if !self.files.is_empty() {
             out.push_str("**Files:**\n");
             for f in &self.files {
-                out.push_str(&format!("- `{}` ({} lines, {})\n", f.path, f.lines, f.last_action));
+                out.push_str(&format!(
+                    "- `{}` ({} lines, {})\n",
+                    f.path, f.lines, f.last_action
+                ));
             }
             out.push('\n');
         }
@@ -145,13 +148,15 @@ impl LongTermMemory {
                     let name = entry.file_name().to_string_lossy().to_string();
                     let keywords: Vec<String> = content
                         .lines()
-                        .filter(|l| l.contains("use ") || l.contains("prefer ") || l.contains("never "))
+                        .filter(|l| {
+                            l.contains("use ") || l.contains("prefer ") || l.contains("never ")
+                        })
                         .map(|l| {
                             l.trim()
-                             .trim_start_matches("use ")
-                             .trim_start_matches("prefer ")
-                             .trim_start_matches("never ")
-                             .to_string()
+                                .trim_start_matches("use ")
+                                .trim_start_matches("prefer ")
+                                .trim_start_matches("never ")
+                                .to_string()
                         })
                         .collect();
                     self.index.insert(name, keywords);
@@ -165,7 +170,8 @@ impl LongTermMemory {
         let mut results = Vec::new();
         let lower = task.to_lowercase();
         for (file, keywords) in &self.index {
-            let hits: usize = keywords.iter()
+            let hits: usize = keywords
+                .iter()
                 .filter(|kw| lower.contains(&kw.to_lowercase()))
                 .count();
             if hits > 0 {

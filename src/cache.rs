@@ -36,14 +36,18 @@ impl CacheStats {
         self.cache_hits = self.cache_hits.saturating_add(cache_read);
         self.cache_writes = self.cache_writes.saturating_add(cache_write);
         // Cache reads are ~10% of normal input cost → 90% savings
-        self.estimated_savings_tokens = self.estimated_savings_tokens
+        self.estimated_savings_tokens = self
+            .estimated_savings_tokens
             .saturating_add((cache_read as f64 * 0.9) as u64);
     }
 
     /// Cache hit ratio (0.0 - 1.0).
     pub fn hit_ratio(&self) -> f64 {
-        if self.total_input == 0 { 0.0 }
-        else { self.cache_hits as f64 / self.total_input as f64 }
+        if self.total_input == 0 {
+            0.0
+        } else {
+            self.cache_hits as f64 / self.total_input as f64
+        }
     }
 
     /// Human-readable savings report.
@@ -65,7 +69,7 @@ impl CacheStats {
 pub fn build_cached_messages(
     system_prompt: &str,
     history: &[AgentMessage],
-    tools_json: &str,
+    _tools_json: &str,
 ) -> Vec<serde_json::Value> {
     let mut messages: Vec<serde_json::Value> = Vec::new();
 
@@ -140,7 +144,10 @@ pub fn build_cached_messages(
                     messages.push(tc_msg);
                 }
             }
-            AgentMessage::ToolResult { tool_call_id, output } => {
+            AgentMessage::ToolResult {
+                tool_call_id,
+                output,
+            } => {
                 let mut content = serde_json::json!({
                     "role": "tool",
                     "tool_call_id": tool_call_id,
@@ -197,7 +204,10 @@ mod tests {
         assert_eq!(msgs.len(), 4);
         // Last message should NOT have cache_control
         let last = &msgs[3];
-        assert!(last.get("cache_control").is_none(), "last message should not be cached");
+        assert!(
+            last.get("cache_control").is_none(),
+            "last message should not be cached"
+        );
     }
 
     #[test]
