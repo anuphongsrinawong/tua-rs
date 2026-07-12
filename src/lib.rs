@@ -11,6 +11,7 @@ pub mod context;
 pub mod context_guard;
 pub mod dashboard;
 pub mod learning;
+pub mod memory;
 pub mod orchestrator;
 pub mod parallel;
 pub mod profiles;
