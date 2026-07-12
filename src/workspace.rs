@@ -609,9 +609,14 @@ members = [
             ws.members.iter().map(|m| &m.name).collect::<Vec<_>>()
         );
         // Verify the workspace root is the parent, not the member dir
+        // Canonicalize both sides: macOS /tmp → /private/tmp symlink
         assert_eq!(
-            Path::new(&ws.root),
-            proj.path(),
+            Path::new(&ws.root)
+                .canonicalize()
+                .unwrap_or_else(|_| Path::new(&ws.root).to_path_buf()),
+            proj.path()
+                .canonicalize()
+                .unwrap_or_else(|_| proj.path().to_path_buf()),
             "workspace root should be the parent project dir"
         );
     }
