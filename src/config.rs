@@ -207,7 +207,7 @@ pub struct ProjectSettings {
 const PROJECT_CONFIG_CANDIDATES: &[&str] = &[".tuarc", ".tua/config.toml"];
 
 /// Load project config from `project_root`.
-pub fn load_project_config(project_root: &PathBuf) -> Option<ProjectConfig> {
+pub fn load_project_config(project_root: &std::path::Path) -> Option<ProjectConfig> {
     for candidate in PROJECT_CONFIG_CANDIDATES {
         let path = project_root.join(candidate);
         if !path.exists() {
