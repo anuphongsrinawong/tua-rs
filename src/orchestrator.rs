@@ -335,8 +335,31 @@ pub fn plan_and_run(description: &str, max_parallel: usize) -> OrchestrationResu
 
     // Show group assignments
     for (gi, group) in groups.iter().enumerate() {
-        let indices: Vec<String> = group.iter().map(|&i| format!("task #{}", i + 1)).collect();
+        let indices: Vec<String> = group.iter().map(|&i| format!("#{}", i + 1)).collect();
         println!("   Group {}: [{}]", gi + 1, indices.join(", "));
+    }
+
+    // ── Confirmation prompt ──
+    println!();
+    println!(
+        "🚀 {} workers in {} group(s) — max {} parallel. Run? [Y/n]: ",
+        tasks.len(),
+        groups.len(),
+        max_parallel
+    );
+    use std::io::{self, Write};
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok();
+    let input = input.trim().to_lowercase();
+    if input == "n" || input == "no" {
+        println!("❌ Cancelled.");
+        return OrchestrationResult {
+            total: tasks.len(),
+            passed: 0,
+            failed: 0,
+            results: vec![],
+        };
     }
 
     let result = orchestrate(description, max_parallel);
