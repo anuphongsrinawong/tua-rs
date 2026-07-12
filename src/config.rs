@@ -269,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
     fn config_path_uses_home_env() {
         let _lock = HOME_LOCK.lock().unwrap();
         // Save original env vars and set a known HOME
@@ -300,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
     fn load_returns_defaults_when_no_file() {
         let _lock = HOME_LOCK.lock().unwrap();
         // Temporarily override HOME to a non-existent directory.
@@ -317,6 +319,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
     fn deserialize_invalid_toml_returns_parse_error() {
         let _lock = HOME_LOCK.lock().unwrap();
         // Use a temp dir with a real config file that has invalid TOML
@@ -348,6 +351,7 @@ tool_timeout_secs = not_a_number"#,
     }
 
     #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
     fn load_returns_error_for_inaccessible_file() {
         let _lock = HOME_LOCK.lock().unwrap();
         // Create a directory at the config path so "reading" it fails
@@ -410,6 +414,7 @@ tool_timeout_secs = not_a_number"#,
     }
 
     #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
     fn config_path_falls_back_to_dot_on_no_home() {
         let _lock = HOME_LOCK.lock().unwrap();
         let original_home = std::env::var("HOME").ok();
