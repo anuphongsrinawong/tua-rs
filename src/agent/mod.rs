@@ -632,15 +632,13 @@ impl AgentLoop {
                                 correction_config.max_self_corrections,
                             );
                             let _ = tx.try_send(AgentEvent::TextDelta(header));
-                            let _ = tx.try_send(AgentEvent::Error(format!(
-                                "cargo check failed ({}/{} corrections); see injected user message",
-                                consecutive_self_corrections,
-                                correction_config.max_self_corrections,
-                            )));
+
+                            // Auto-inject rustc --explain for detected error codes
+                            let explain_text = extract_and_explain_errors(&errors);
 
                             let user_msg = format!(
                                 "The `cargo check` command produced errors. \
-                                 Please fix them so the project compiles.\n\n```\n{errors}\n```"
+                                 Please fix them so the project compiles.\n\n```\n{errors}\n```\n\n{explain_text}"
                             );
                             current_messages.push(AgentMessage::user(user_msg));
 
@@ -660,6 +658,61 @@ impl AgentLoop {
 
         Box::pin(rx)
     }
+}
+
+// ── rustc --explain auto-inject ─────────────────────────────────────
+
+/// Extract Rust error codes (E0XXX, E1XXX) from compiler output and
+/// auto-inject `rustc --explain` documentation for each unique code.
+///
+/// This gives the agent the official compiler documentation inline,
+/// dramatically reducing guesswork when fixing borrow-checker errors.
+pub fn extract_and_explain_errors(compiler_output: &str) -> String {
+    use std::collections::BTreeSet;
+    use std::process::Command;
+    
+    // Find all unique error codes: E0XXX or E1XXX
+    let mut codes = BTreeSet::new();
+    for word in compiler_output.split(|c: char| !c.is_alphanumeric()) {
+        if (word.starts_with("E0") || word.starts_with("E1")) && word.len() >= 5 {
+            codes.insert(word.to_string());
+        }
+    }
+    
+    if codes.is_empty() {
+        return String::new();
+    }
+    
+    let mut explain = String::from("## 📖 Rust Compiler Documentation\n\n");
+    explain.push_str(&format!("Detected {} unique error code(s):\n\n", codes.len()));
+    
+    for code in codes.iter().take(5) {
+        // Run rustc --explain
+        let output = Command::new("rustc")
+            .args(["--explain", code])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| format!("(no explanation available for {code})"));
+        
+        // Truncate long explanations to avoid context bloat
+        let truncated: String = output
+            .lines()
+            .take(30)
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        explain.push_str(&format!("### {code}\n```\n{truncated}\n```\n\n"));
+    }
+    
+    if codes.len() > 5 {
+        explain.push_str(&format!(
+            "_({} additional error codes not shown — fix these first, then re-run)_\n",
+            codes.len() - 5
+        ));
+    }
+    
+    explain
 }
 
 // ---------------------------------------------------------------------------

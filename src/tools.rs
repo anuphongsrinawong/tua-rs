@@ -26,6 +26,7 @@ pub fn rust_tools() -> Vec<AgentTool> {
         wasm_pack_tool(),
         rustc_explain_tool(),
         grep_tool(),
+        cargo_add_tool(),
     ]
 }
 
@@ -721,6 +722,64 @@ fn grep_tool() -> AgentTool {
             };
 
             Box::pin(async move {
+                run_cmd_output(&mut cmd).await
+            })
+        }),
+    )
+}
+
+// ── Cargo Add Tool ───────────────────────────────────────────────────
+
+fn cargo_add_tool() -> AgentTool {
+    AgentTool::new(
+        "cargo_add",
+        "Add a new dependency to Cargo.toml. Runs `cargo add <crate>`. Supports features, version, and optional flags. Use this instead of manually editing Cargo.toml.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "crate_name": {
+                    "type": "string",
+                    "description": "Name of the crate to add (e.g., 'serde', 'tokio', 'thiserror')"
+                },
+                "features": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Features to enable (e.g., ['derive', 'json'])"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Specific version to pin (e.g., '1.0', '0.8') — omit for latest"
+                },
+                "optional": {
+                    "type": "boolean",
+                    "description": "Add as optional dependency"
+                },
+                "dev": {
+                    "type": "boolean",
+                    "description": "Add as dev-dependency"
+                }
+            },
+            "required": ["crate_name"]
+        }),
+        make_executor("cargo_add", |args| {
+            let crate_name = args["crate_name"].as_str().unwrap_or("").to_string();
+            let features: Vec<String> = args.get("features")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let version = args.get("version").and_then(|v| v.as_str()).map(String::from);
+            let optional = args.get("optional").and_then(|v| v.as_bool()).unwrap_or(false);
+            let dev = args.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            Box::pin(async move {
+                let mut cmd = tokio::process::Command::new("cargo");
+                cmd.arg("add").arg(&crate_name);
+                if dev { cmd.arg("--dev"); }
+                if optional { cmd.arg("--optional"); }
+                if let Some(ref ver) = version { cmd.args(["--version", ver]); }
+                if !features.is_empty() {
+                    cmd.arg("--features").arg(features.join(","));
+                }
                 run_cmd_output(&mut cmd).await
             })
         }),
