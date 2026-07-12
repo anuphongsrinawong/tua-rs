@@ -29,6 +29,7 @@ pub fn rust_tools() -> Vec<AgentTool> {
         cargo_add_tool(),
         cargo_expand_tool(),
         code_coverage_tool(),
+        cargo_mutants_tool(),
     ]
 }
 
@@ -862,6 +863,41 @@ fn code_coverage_tool() -> AgentTool {
                     _ => { /* summary is default */ }
                 }
                 if !include_tests { cmd.arg("--ignore-filename-regex").arg("tests/"); }
+                run_cmd_output(&mut cmd).await
+            })
+        }),
+    )
+}
+
+// ── Cargo Mutants Tool ───────────────────────────────────────────────
+
+fn cargo_mutants_tool() -> AgentTool {
+    AgentTool::new(
+        "mutants",
+        "Run mutation testing via cargo-mutants. Injects bugs into source code and checks if existing tests catch them. Surviving mutants = tests not rigorous enough. Requires `cargo-mutants` installed.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Specific function or module to mutation-test (e.g., 'session::save') — omit for all"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds per mutant (default: 60)"
+                }
+            },
+            "required": []
+        }),
+        make_executor("mutants", |args| {
+            let target = args.get("target").and_then(|v| v.as_str()).map(String::from);
+            let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(60);
+
+            Box::pin(async move {
+                let mut cmd = tokio::process::Command::new("cargo");
+                cmd.arg("mutants");
+                cmd.arg("--timeout").arg(timeout.to_string());
+                if let Some(ref t) = target { cmd.arg("--function").arg(t); }
                 run_cmd_output(&mut cmd).await
             })
         }),
