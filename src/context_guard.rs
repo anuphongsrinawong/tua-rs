@@ -43,25 +43,19 @@ pub fn model_max_tokens(model: &str) -> usize {
 
 /// Rough token count: ~4 chars = 1 token (English text).
 /// Underestimates for code, overestimates for whitespace — good enough for guard.
-#[allow(unreachable_patterns)]
 pub fn estimate_tokens(messages: &[AgentMessage]) -> usize {
-    messages
-        .iter()
-        .map(|m| match m {
-            AgentMessage::User { text } => text.len() / 4,
-            AgentMessage::Assistant { text, tool_calls } => {
-                let txt = text.as_deref().unwrap_or("").len() / 4;
-                let tools: usize = tool_calls
-                    .iter()
-                    .map(|tc| tc.name.len() + tc.arguments.to_string().len())
-                    .sum::<usize>()
-                    / 4;
-                txt + tools
-            }
-            AgentMessage::ToolResult { output, .. } => output.len() / 4,
-            _ => 0,
-        })
-        .sum()
+    messages.iter().map(|m| match m {
+        AgentMessage::User { text } => text.len() / 4,
+        AgentMessage::Assistant { text, tool_calls } => {
+            let txt = text.as_deref().unwrap_or("").len() / 4;
+            let tools: usize = tool_calls.iter()
+                .map(|tc| tc.name.len() + tc.arguments.to_string().len())
+                .sum::<usize>() / 4;
+            txt + tools
+        }
+        AgentMessage::ToolResult { output, .. } => output.len() / 4,
+        _ => 0,
+    }).sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -73,16 +67,16 @@ pub fn estimate_tokens(messages: &[AgentMessage]) -> usize {
 pub struct ContextStatus {
     pub tokens_used: usize,
     pub tokens_max: usize,
-    pub percentage: u8, // 0-100
+    pub percentage: u8,         // 0-100
     pub state: ContextState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextState {
-    Healthy,  // < 60% — green
-    Warning,  // 60-79% — yellow
-    Critical, // 80-99% — red (auto-compact)
-    Overflow, // > 100% — should never happen
+    Healthy,     // < 60% — green
+    Warning,     // 60-79% — yellow
+    Critical,    // 80-99% — red (auto-compact)
+    Overflow,    // > 100% — should never happen
 }
 
 impl ContextStatus {
@@ -97,12 +91,7 @@ impl ContextStatus {
             80..=99 => ContextState::Critical,
             _ => ContextState::Overflow,
         };
-        Self {
-            tokens_used: used,
-            tokens_max: max,
-            percentage: pct,
-            state,
-        }
+        Self { tokens_used: used, tokens_max: max, percentage: pct, state }
     }
 
     /// Render a compact progress bar: `[████░░] 45K/128K (35%)`
@@ -110,8 +99,8 @@ impl ContextStatus {
         let filled = (self.percentage as usize * width) / 100;
         let bar: String = "█".repeat(filled) + &"░".repeat(width.saturating_sub(filled));
         let emoji = match self.state {
-            ContextState::Healthy => "🟢",
-            ContextState::Warning => "🟡",
+            ContextState::Healthy  => "🟢",
+            ContextState::Warning  => "🟡",
             ContextState::Critical => "🔴",
             ContextState::Overflow => "💀",
         };
@@ -160,7 +149,6 @@ pub fn smart_compact(messages: &mut Vec<AgentMessage>, keep_last: usize) {
 }
 
 /// Save middle turns to Obsidian vault for permanent storage.
-#[allow(unreachable_patterns)]
 fn backup_to_vault(messages: &[AgentMessage]) -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".into());
     let vault = format!("{home}/.tua-rs/vault/sessions");
@@ -177,19 +165,13 @@ fn backup_to_vault(messages: &[AgentMessage]) -> String {
                 content.push_str(&format!("## User\n{text}\n\n"));
             }
             AgentMessage::Assistant { text, tool_calls } => {
-                content.push_str(&format!(
-                    "## Assistant\n{}\n",
-                    text.as_deref().unwrap_or("")
-                ));
+                content.push_str(&format!("## Assistant\n{}\n", text.as_deref().unwrap_or("")));
                 for tc in tool_calls {
                     content.push_str(&format!("- 🔧 {}: {}\n", tc.name, tc.arguments));
                 }
                 content.push('\n');
             }
-            AgentMessage::ToolResult {
-                tool_call_id,
-                output,
-            } => {
+            AgentMessage::ToolResult { tool_call_id, output } => {
                 content.push_str(&format!("- Result({tool_call_id}): {output}\n\n"));
             }
             _ => {}
@@ -246,21 +228,15 @@ fn structured_summarize(messages: &[AgentMessage], backup_path: &str) -> String 
                 // Extract decisions (lines starting with "use ", "prefer ", "decided")
                 for line in txt.lines() {
                     let l = line.trim().to_lowercase();
-                    if l.starts_with("use ")
-                        || l.starts_with("prefer ")
-                        || l.starts_with("decided")
-                        || l.starts_with("choose")
-                    {
+                    if l.starts_with("use ") || l.starts_with("prefer ") 
+                       || l.starts_with("decided") || l.starts_with("choose") {
                         decisions.push(truncate_str(line.trim(), 120));
                     }
                 }
                 // Track actions
                 for tc in tool_calls {
-                    actions.push(format!(
-                        "🔧 {} ({})",
-                        tc.name,
-                        truncate_str(&tc.arguments.to_string(), 60)
-                    ));
+                    actions.push(format!("🔧 {} ({})", tc.name, 
+                        truncate_str(&tc.arguments.to_string(), 60)));
                 }
                 // Detect results
                 if txt.contains("passed") || txt.contains("test result") {
@@ -271,13 +247,11 @@ fn structured_summarize(messages: &[AgentMessage], backup_path: &str) -> String 
                     }
                 }
             }
-            AgentMessage::ToolResult {
-                tool_call_id: _,
-                output,
-            } if (output.to_lowercase().contains("error")
-                || output.to_lowercase().contains("fail")) =>
-            {
-                errors.push(truncate_str(output, 120));
+            AgentMessage::ToolResult { tool_call_id: _, output } => {
+                if output.to_lowercase().contains("error") 
+                   || output.to_lowercase().contains("fail") {
+                    errors.push(truncate_str(output, 120));
+                }
             }
             _ => {}
         }
@@ -285,45 +259,32 @@ fn structured_summarize(messages: &[AgentMessage], backup_path: &str) -> String 
 
     // Build structured summary
     let mut s = String::from("## 📋 Context Summary\n\n");
-    s.push_str(&format!(
-        "⏪ {} turns compacted → full backup: {}\n\n",
-        messages.len(),
-        backup_path
-    ));
+    s.push_str(&format!("⏪ {} turns compacted → full backup: {}\n\n", 
+        messages.len(), backup_path));
 
     if !tasks.is_empty() {
         s.push_str("### 🎯 Tasks\n");
-        for t in tasks.iter().take(5) {
-            s.push_str(&format!("- {t}\n"));
-        }
+        for t in tasks.iter().take(5) { s.push_str(&format!("- {t}\n")); }
         s.push('\n');
     }
     if !actions.is_empty() {
         s.push_str("### 🔧 Actions\n");
-        for a in actions.iter().take(10) {
-            s.push_str(&format!("- {a}\n"));
-        }
+        for a in actions.iter().take(10) { s.push_str(&format!("- {a}\n")); }
         s.push('\n');
     }
     if !results.is_empty() {
         s.push_str("### ✅ Results\n");
-        for r in results.iter().take(3) {
-            s.push_str(&format!("- {r}\n"));
-        }
+        for r in results.iter().take(3) { s.push_str(&format!("- {r}\n")); }
         s.push('\n');
     }
     if !decisions.is_empty() {
         s.push_str("### 💡 Decisions\n");
-        for d in decisions.iter().take(5) {
-            s.push_str(&format!("- {d}\n"));
-        }
+        for d in decisions.iter().take(5) { s.push_str(&format!("- {d}\n")); }
         s.push('\n');
     }
     if !errors.is_empty() {
         s.push_str("### ❌ Errors\n");
-        for e in errors.iter().take(5) {
-            s.push_str(&format!("- {e}\n"));
-        }
+        for e in errors.iter().take(5) { s.push_str(&format!("- {e}\n")); }
         s.push('\n');
     }
     if errors.is_empty() && decisions.is_empty() {
@@ -334,11 +295,7 @@ fn structured_summarize(messages: &[AgentMessage], backup_path: &str) -> String 
 }
 
 fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max - 1])
-    }
+    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max-1]) }
 }
 
 // Keep old compact_messages for backward compatibility
@@ -382,10 +339,7 @@ mod tests {
     fn test_estimate_tokens_user_message() {
         let msgs = vec![AgentMessage::user("Hello, world! How are you?")];
         let tokens = estimate_tokens(&msgs);
-        assert!(
-            tokens > 0 && tokens < 30,
-            "short message should be < 30 tokens"
-        );
+        assert!(tokens > 0 && tokens < 30, "short message should be < 30 tokens");
     }
 
     #[test]
@@ -399,10 +353,7 @@ mod tests {
             }],
         )];
         let tokens = estimate_tokens(&msgs);
-        assert!(
-            tokens > 10,
-            "message with tool call should estimate > 10 tokens"
-        );
+        assert!(tokens > 10, "message with tool call should estimate > 10 tokens");
     }
 
     #[test]

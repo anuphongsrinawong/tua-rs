@@ -24,7 +24,6 @@ const MAX_CPUS: &str = "2.0";
 
 /// A Docker container running a Rust toolchain.
 pub struct DockerSandbox {
-    #[allow(dead_code)]
     container_id: Option<String>,
     project_dir: String,
     _image: String,
@@ -47,7 +46,7 @@ impl DockerSandbox {
             .arg("version")
             .output()
             .map_err(|_| "Docker is not installed or not running".to_string())?;
-
+        
         if !status.status.success() {
             return Err("Docker daemon is not running".into());
         }
@@ -65,17 +64,17 @@ impl DockerSandbox {
     /// and returns the output. The container is removed after execution.
     pub fn run(&self, command: &str) -> Result<SandboxOutput, String> {
         let start = std::time::Instant::now();
-
-        let _parent = std::path::Path::new(&self.project_dir)
+        
+        let parent = std::path::Path::new(&self.project_dir)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| ".".into());
-
+        
         let output = Command::new("docker")
             .arg("run")
-            .arg("--rm") // remove after run
-            .args(["--memory", MAX_MEMORY]) // limit memory
-            .args(["--cpus", MAX_CPUS]) // limit CPU
+            .arg("--rm")                          // remove after run
+            .args(["--memory", MAX_MEMORY])       // limit memory
+            .args(["--cpus", MAX_CPUS])           // limit CPU
             .args(["-v", &format!("{}:/workspace", self.project_dir)])
             .args(["-w", "/workspace"])
             .arg(DEFAULT_RUST_IMAGE)
