@@ -53,10 +53,6 @@ enum Commands {
         #[arg(long, default_value = "4")]
         parallel: usize,
     },
-    /// Generate test skeletons from a Rust source file
-        /// Path to the Rust source file to analyze
-        path: String,
-    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -95,19 +91,6 @@ fn main() -> anyhow::Result<()> {
             let result = tua_rs::orchestrator::plan_and_run(&task, parallel);
             if result.failed > 0 {
                 eprintln!("⚠️  {} subtask(s) failed", result.failed);
-            }
-        }
-            println!("🦀 Generating tests for: {}\n", path);
-            if tests.is_empty() {
-                println!("⚠️  No public functions found in '{}'", path);
-            } else {
-                for (i, test) in tests.iter().enumerate() {
-                    if i > 0 {
-                        println!();
-                    }
-                    println!("{test}");
-                }
-                println!("\n✅ Generated {} test(s)", tests.len());
             }
         }
         Some(Commands::Complete { prefix }) => {
