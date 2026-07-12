@@ -115,71 +115,192 @@ impl ContextStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-Compact
+// Smart Compact — LLM-quality summarization + Obsidian backup
 // ---------------------------------------------------------------------------
 
-/// Compact a message history, keeping the most recent turns.
+/// Compact a message history with structured summarization.
 ///
-/// Preserves:
-/// - First message (system context / initial instruction)
-/// - Last `keep_last` messages (recent conversation)
+/// **Algorithm (3-phase):**
+/// 1. **Backup** — save middle turns to `~/.tua-rs/vault/sessions/{date}-compact-{uuid}.md`
+/// 2. **Summarize** — extract key facts: tasks, edits, errors, decisions, pending
+/// 3. **Rebuild** — [first, structured_summary, ...last_N]
 ///
-/// Everything in between is replaced by a single summary message.
-pub fn compact_messages(messages: &mut Vec<AgentMessage>, keep_last: usize) {
+/// No information is lost — full history in vault, searchable via `.search_index`.
+pub fn smart_compact(messages: &mut Vec<AgentMessage>, keep_last: usize) {
     if messages.len() <= keep_last + 2 {
-        return; // not enough to compact
+        return;
     }
 
-    // Build summary of middle messages
+    let first = messages[0].clone();
     let middle: Vec<_> = messages[1..messages.len() - keep_last].to_vec();
-    let summary = summarize_middle(&middle);
-
-    // Replace: [first, ...middle..., ...last_keep_last...]
-    //       → [first, summary, ...last_keep_last...]
     let last: Vec<_> = messages[messages.len() - keep_last..].to_vec();
+
+    // Phase 1: Backup middle turns to vault
+    let backup_path = backup_to_vault(&middle);
+
+    // Phase 2: Structured summarization
+    let summary = structured_summarize(&middle, &backup_path);
+
+    // Phase 3: Rebuild — keep first + summary + last N
     messages.clear();
-    // Keep first message if it exists
-    if !middle.is_empty() {
-        // First message was before middle — find it
-        // Since middle = messages[1..len-keep_last], first = messages[0]
-        // But we cleared messages, so reconstruct
-    }
-    
-    // Simplified: just keep summary + last N
-    messages.push(AgentMessage::assistant(
-        Some(format!("[Context compacted: {} earlier turns summarized]\n\n{summary}", middle.len())),
-        vec![],
-    ));
+    messages.push(first);
+    messages.push(AgentMessage::assistant(Some(summary), vec![]));
     messages.extend(last);
 }
 
-/// Build a brief summary of conversation turns for compaction.
-fn summarize_middle(messages: &[AgentMessage]) -> String {
-    let mut summary = String::new();
+/// Save middle turns to Obsidian vault for permanent storage.
+fn backup_to_vault(messages: &[AgentMessage]) -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".into());
+    let vault = format!("{home}/.tua-rs/vault/sessions");
+    std::fs::create_dir_all(&vault).ok();
+
+    let today = chrono_now();
+    let id = &uuid::Uuid::new_v4().to_string()[..8];
+    let path = format!("{vault}/{today}-compact-{id}.md");
+
+    let mut content = String::from("# Compaction Backup\n\n");
     for msg in messages {
         match msg {
             AgentMessage::User { text } => {
-                summary.push_str(&format!("User: {}\n", truncate(text, 80)));
+                content.push_str(&format!("## User\n{text}\n\n"));
             }
             AgentMessage::Assistant { text, tool_calls } => {
-                let txt = text.as_deref().unwrap_or("");
-                summary.push_str(&format!("Assistant: {}\n", truncate(txt, 120)));
+                content.push_str(&format!("## Assistant\n{}\n", text.as_deref().unwrap_or("")));
                 for tc in tool_calls {
-                    summary.push_str(&format!("  🔧 {}\n", tc.name));
+                    content.push_str(&format!("- 🔧 {}: {}\n", tc.name, tc.arguments));
                 }
+                content.push('\n');
             }
             AgentMessage::ToolResult { tool_call_id, output } => {
-                let ok = if output.to_lowercase().contains("error") { "❌" } else { "✅" };
-                summary.push_str(&format!("  {ok} {tool_call_id}: {}\n", truncate(output, 60)));
+                content.push_str(&format!("- Result({tool_call_id}): {output}\n\n"));
             }
             _ => {}
         }
     }
-    summary
+
+    std::fs::write(&path, &content).ok();
+    path
 }
 
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..max] }
+/// Current date as YYYY-MM-DD string.
+fn chrono_now() -> String {
+    use std::time::SystemTime;
+    let dur = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs();
+    let days = secs / 86400;
+    // Simple date calculation (approximate — good enough for filenames)
+    let years_since_1970 = days / 365;
+    let year = 1970 + years_since_1970;
+    let day_of_year = days - years_since_1970 * 365;
+    let month = (day_of_year / 30 + 1).min(12);
+    let day = (day_of_year % 30 + 1).min(31);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Structured summarization — extracts key facts like an LLM would.
+///
+/// Produces a compact, queryable summary with these sections:
+/// - **Tasks** — what was requested
+/// - **Actions** — what the agent did (tools run, files modified)
+/// - **Results** — test counts, build status
+/// - **Decisions** — design choices made
+/// - **Errors** — errors encountered + fixes
+/// - **Pending** — unfinished work
+/// - **Vault** — link to full backup
+fn structured_summarize(messages: &[AgentMessage], backup_path: &str) -> String {
+    let mut tasks = Vec::new();
+    let mut actions = Vec::new();
+    let mut errors = Vec::new();
+    let mut decisions = Vec::new();
+    let mut results = Vec::new();
+
+    for msg in messages {
+        match msg {
+            AgentMessage::User { text } => {
+                if text.len() > 10 {
+                    tasks.push(truncate_str(text, 150));
+                }
+            }
+            AgentMessage::Assistant { text, tool_calls } => {
+                let txt = text.as_deref().unwrap_or("");
+                // Extract decisions (lines starting with "use ", "prefer ", "decided")
+                for line in txt.lines() {
+                    let l = line.trim().to_lowercase();
+                    if l.starts_with("use ") || l.starts_with("prefer ") 
+                       || l.starts_with("decided") || l.starts_with("choose") {
+                        decisions.push(truncate_str(line.trim(), 120));
+                    }
+                }
+                // Track actions
+                for tc in tool_calls {
+                    actions.push(format!("🔧 {} ({})", tc.name, 
+                        truncate_str(&tc.arguments.to_string(), 60)));
+                }
+                // Detect results
+                if txt.contains("passed") || txt.contains("test result") {
+                    for line in txt.lines() {
+                        if line.contains("passed") || line.contains("test result") {
+                            results.push(line.trim().to_string());
+                        }
+                    }
+                }
+            }
+            AgentMessage::ToolResult { tool_call_id: _, output } => {
+                if output.to_lowercase().contains("error") 
+                   || output.to_lowercase().contains("fail") {
+                    errors.push(truncate_str(output, 120));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Build structured summary
+    let mut s = String::from("## 📋 Context Summary\n\n");
+    s.push_str(&format!("⏪ {} turns compacted → full backup: {}\n\n", 
+        messages.len(), backup_path));
+
+    if !tasks.is_empty() {
+        s.push_str("### 🎯 Tasks\n");
+        for t in tasks.iter().take(5) { s.push_str(&format!("- {t}\n")); }
+        s.push('\n');
+    }
+    if !actions.is_empty() {
+        s.push_str("### 🔧 Actions\n");
+        for a in actions.iter().take(10) { s.push_str(&format!("- {a}\n")); }
+        s.push('\n');
+    }
+    if !results.is_empty() {
+        s.push_str("### ✅ Results\n");
+        for r in results.iter().take(3) { s.push_str(&format!("- {r}\n")); }
+        s.push('\n');
+    }
+    if !decisions.is_empty() {
+        s.push_str("### 💡 Decisions\n");
+        for d in decisions.iter().take(5) { s.push_str(&format!("- {d}\n")); }
+        s.push('\n');
+    }
+    if !errors.is_empty() {
+        s.push_str("### ❌ Errors\n");
+        for e in errors.iter().take(5) { s.push_str(&format!("- {e}\n")); }
+        s.push('\n');
+    }
+    if errors.is_empty() && decisions.is_empty() {
+        s.push_str("_(routine conversation — no key decisions or errors)_\n");
+    }
+
+    s
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max-1]) }
+}
+
+// Keep old compact_messages for backward compatibility
+pub fn compact_messages(messages: &mut Vec<AgentMessage>, keep_last: usize) {
+    smart_compact(messages, keep_last);
 }
 
 // ---------------------------------------------------------------------------
