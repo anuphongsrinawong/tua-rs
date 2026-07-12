@@ -222,34 +222,65 @@ fn run_subtask(task: &SubTask) -> SubTaskResult {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
     let tua_project = format!("{home}/tua-agent");
 
-    // Load project context if available
+    // ── Smart Context Selector ──
+    // Strategy: include the most relevant knowledge without overflowing context window.
+    // Priority: PROJECT.md > rules/ > error match > recent sessions.
     let mut context = String::new();
-    
-    // 1. PROJECT.md
+
+    // 1. PROJECT.md — always (project structure, never changes)
     if let Ok(ctx) = std::fs::read_to_string("PROJECT.md") {
-        context.push_str(&format!("Project context:\n{ctx}\n\n"));
+        context.push_str(&format!("## Project\n{ctx}\n\n"));
     }
-    
-    // 2. Vault knowledge base (~/.tua-rs/vault/)
+
+    // 2. Rules — always (small, essential, rarely changes)
     let vault = format!("{home}/.tua-rs/vault");
-    if let Ok(entries) = std::fs::read_dir(&vault) {
-        for entry in entries.flatten() {
+    for rule in &["rules/rust-do.md", "rules/rust-dont.md"] {
+        if let Ok(content) = std::fs::read_to_string(format!("{vault}/{rule}")) {
+            context.push_str(&format!("## {rule}\n{content}\n\n"));
+        }
+    }
+
+    // 3. Error match — only if task mentions an error code like E0308
+    if let Ok(err_dir) = std::fs::read_dir(format!("{vault}/errors")) {
+        for entry in err_dir.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                if let Ok(files) = std::fs::read_dir(&path) {
-                    for f in files.flatten() {
-                        let p = f.path();
-                        if p.extension().is_some_and(|e| e == "md") {
-                            if let Ok(content) = std::fs::read_to_string(&p) {
-                                context.push_str(&format!("---\n{content}\n"));
-                            }
-                        }
-                    }
+            let fname = path.file_stem().unwrap_or_default().to_string_lossy();
+            let fname_str: &str = &fname;
+            if task.description.contains(fname_str) || task.prompt.contains(fname_str) {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    context.push_str(&format!("## errors/{fname}\n{content}\n\n"));
                 }
             }
         }
     }
-    
+
+    // 4. Recent sessions — last 3 only (auto-pruned)
+    const MAX_SESSION_FILES: usize = 3;
+    let sessions_dir = format!("{vault}/sessions");
+    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+        let mut files: Vec<_> = entries
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+            .collect();
+        files.sort_by_key(|e| e.file_name()); // sort by date (yyyy-mm-dd.md)
+        for entry in files.iter().rev().take(MAX_SESSION_FILES) {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                context.push_str(&format!("## sessions/{name}\n{content}\n\n"));
+            }
+        }
+    }
+
+    // 5. Token budget guard: if >200KB (~50K tokens), truncate sessions first
+    const MAX_CONTEXT_CHARS: usize = 200_000;
+    if context.len() > MAX_CONTEXT_CHARS {
+        // Find last "## sessions/" marker and cut there
+        if let Some(pos) = context.rfind("## sessions/") {
+            context.truncate(pos);
+            context.push_str("## sessions/ (older sessions truncated for context budget)\n");
+        }
+    }
+
     let prompt = if context.is_empty() {
         task.prompt.clone()
     } else {
