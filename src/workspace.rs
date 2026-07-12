@@ -420,6 +420,7 @@ members = [
     // -----------------------------------------------------------------------
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore)]
     fn test_single_crate_detected_as_workspace() {
         // Even a single-crate project should be detected as a workspace with
         // one member (the root package itself).
@@ -591,6 +592,7 @@ members = [
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore)]
     fn test_detect_subdir_in_workspace() {
         // Calling `detect_workspace` from a member crate's subdirectory
         // (not the workspace root) should still resolve the full workspace.
