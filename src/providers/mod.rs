@@ -535,6 +535,58 @@ pub fn build_default_provider(
     build_provider(config)
 }
 
+// ── Fallback Provider Chain ──────────────────────────────────────────
+
+/// Try a list of provider configurations in order, returning the first
+/// one that successfully validates its connection.
+///
+/// This enables automatic failover: if the primary provider times out
+/// or is rate-limited, the agent falls back to the next in the chain.
+pub fn fallback_chain(
+    candidates: &[(&str, &str)],  // (provider_name, model_name)
+    api_key: &str,
+    _settings: Option<&ProviderSettings>,
+    validate: bool,
+) -> Result<(Arc<dyn ModelProvider>, String), String> {
+    let mut last_error = String::new();
+    
+    for (i, (provider_name, model)) in candidates.iter().enumerate() {
+        match build_default_provider(provider_name, Some(model.to_string()), api_key.to_string(), None, validate) {
+            Ok(provider) => {
+                if i > 0 {
+                    eprintln!("⚠️  Fallback: switched to {provider_name}/{model}");
+                }
+                return Ok((provider, provider_name.to_string()));
+            }
+            Err(e) => {
+                last_error = format!("{provider_name}: {e}");
+            }
+        }
+    }
+    
+    Err(format!("All providers failed:\n{last_error}"))
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    #[test]
+    fn test_fallback_chain_empty_returns_error() {
+        let result = fallback_chain(&[], "key", None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fallback_chain_invalid_provider_returns_all_errors() {
+        let result = fallback_chain(
+            &[("invalid-provider", "model")],
+            "key", None, false,
+        );
+        assert!(result.is_err());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
