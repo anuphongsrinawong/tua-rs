@@ -1,130 +1,145 @@
-# CLAUDE_TASK.md — Wire Agent Harness to TUI Streaming
+# CLAUDE_TASK.md — Interactive Provider/Model Picker in TUI
 
 ## Project: /tmp/tua-rs (Rust, v1.1.0)
 
 ## Current State
 
-The project has two disconnected components:
-1. **`src/agent/mod.rs`** — `AgentLoop::run()` returns `Stream<Item = AgentEvent>` — fully working
-2. **`src/tui.rs`** — `App` struct with tabs, input, command palette — NO run loop, NO agent connection
-3. **`src/main.rs`** — `Commands::Tui` just prints "🦀 TUI mode" — doesn't launch anything
+The TUI hardcodes `MockProvider` and `/model` shows a static message:
+```
+"🤖 Model: deepseek/deepseek-v4-flash (configurable in config)"
+```
 
 ## Goal
 
-When the user runs `tua-rs tui`, they get a working TUI where:
-- Type a message → press Enter → agent responds with streaming text
-- Agent tool calls appear in the UI
-- Multiple tabs, command palette, scrolling all work
+When user presses `/model` in the TUI:
+1. A popup appears listing available providers from config files
+2. User can navigate with ↑↓ arrows, press Enter to select
+3. After selecting provider → sub-list of models for that provider
+4. After selecting model → agent rebuilds with real provider
 
-## Implementation Plan
+## Config Files to Parse
 
-### Step 1: Add `App::run()` to `src/tui.rs`
-
-Add a `pub fn run(&mut self) -> anyhow::Result<()>` method that:
-```
-1. Initialize ratatui terminal via TerminalGuard::enter()
-2. Enter main event loop: loop { event::poll(timeout); match event { ... } }
-3. Handle keys: 
-   - Enter → spawn agent task (see Step 2), send user message
-   - Ctrl+C/Esc → quit
-   - Ctrl+T/W/P → existing tab/palette handlers
-   - Backspace → edit input
-   - Char → append to input_buffer
-4. Render loop: terminal.draw(|f| self.render(f))
-```
-
-Use `crossterm::event::poll(Duration::from_millis(50))` for non-blocking event loop.
-Call `terminal.draw(|f| self.render(f))` on every iteration.
-
-### Step 2: Connect Agent to TUI
-
-When user presses Enter:
-```
-1. Take input_buffer, add as AgentMessage::User to active tab
-2. Clear input_buffer
-3. Spawn tokio task: tokio::spawn(async move {
-     let stream = agent_loop.run(messages_clone);
-     while let Some(event) = stream.next().await {
-         match event {
-             TextDelta(s) → append to tab's last assistant message
-             ThinkingDelta(s) → show dimmed
-             ToolCall { name, args } → show "🔧 {name}"
-             ToolResult { result } → show "✅ ok" or "⚠️ fail"
-             Error(msg) → show in red
-             Done → finish
-         }
-     }
-   })
-```
-
-### Step 3: Use MockProvider for TUI
-
-Inside `App::run()`, create an `AgentLoop` with `MockProvider`:
-```rust
-let provider = Arc::new(MockProvider::new());
-let tools = get_rust_tools();
-let agent_loop = AgentLoop::new(provider, system_prompt, tools, AgentConfig::default());
-```
-
-Store `agent_loop` in `App` struct (requires `Arc<AgentLoop>`).
-
-### Step 4: Add imports for `src/tui.rs`
-
-You'll need:
-```rust
-use crate::agent::{AgentEvent, AgentLoop, AgentMessage, AgentConfig, AgentTool};
-use crate::providers::mock::MockProvider;
-use crate::tools::get_rust_tools;
-use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
-use futures::StreamExt;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-```
-
-### Step 5: Export modules in `src/lib.rs`
-
-Make sure `tui` module is public and all agent types are exported.
-
-### Step 6: Wire `Commands::Tui` in `src/main.rs`
-
-```rust
-Some(Commands::Tui) => {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let mut app = App::new();
-        app.run()
-    })?;
+### `~/.tau/providers.json`
+```json
+{
+  "default_provider": "9router",
+  "provider_preferences": {
+    "9router": { "default_model": "glm/glm-5.2", ... },
+    "openai-codex": { "default_model": "gpt-5.5", ... }
+  }
 }
 ```
 
-### Step 7: Add `tokio` to Activate rt-multi-thread
-
-Make sure `Cargo.toml` has:
+### `~/.tau/catalog.toml`
 ```toml
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+[[providers]]
+name = "9router"
+kind = "openai-compatible"
+base_url = "http://127.0.0.1:20128/v1"
+models = ["glm/glm-5.2", "glm/glm-4.7", "deepseek/deepseek-v4-flash"]
+default_model = "glm/glm-5.2"
+
+[[providers]]
+name = "openai-codex"
+kind = "openai-codex"
+base_url = "https://chatgpt.com/backend-api"
+models = ["gpt-5.5", "gpt-5.4", ...]
+default_model = "gpt-5.5"
 ```
 
-## Implementation
+### `~/.tau/credentials.json`
+```json
+{ "9router": "free" }
+```
 
-1. Read ALL source files first: src/tui.rs, src/agent/mod.rs, src/main.rs, src/lib.rs, Cargo.toml
-2. Modify src/tui.rs — add run loop + agent streaming
-3. Modify src/main.rs — wire Commands::Tui
-4. Modify src/lib.rs if needed — add tui module export
-5. Run `cargo build` — fix any errors
-6. Run `cargo test --lib` — verify all 282 tests still pass
-7. Run `cargo clippy` — zero warnings
+## Implementation Plan
+
+### Step 1: Add provider/model state to `App` struct (src/tui.rs)
+
+```rust
+pub struct App {
+    // ... existing fields ...
+    /// Available providers loaded from config.
+    pub providers: Vec<ProviderInfo>,
+    /// Currently selected provider name.
+    pub selected_provider: String,
+    /// Currently selected model name.
+    pub selected_model: String,
+    /// Whether the provider/model picker is open.
+    pub mode: AppMode,  // add ProviderPicker variant
+}
+
+struct ProviderInfo {
+    name: String,
+    kind: String,
+    base_url: String,
+    models: Vec<String>,
+    default_model: String,
+}
+```
+
+### Step 2: Parse config files on startup (src/tui.rs)
+
+Add a function `load_provider_config() -> Vec<ProviderInfo>` that:
+1. Reads `~/.tau/catalog.toml` using the `toml` crate
+2. Reads `~/.tau/providers.json` using `serde_json`
+3. Returns Vec<ProviderInfo> with all providers and their models
+
+Use `dirs::home_dir()` or `std::env::var("HOME")` to find home directory.
+
+### Step 3: Add `AppMode::ProviderPicker`
+
+```rust
+pub enum AppMode {
+    Normal,
+    CommandPalette,
+    ProviderPicker,     // NEW: selecting provider
+    ModelPicker,        // NEW: selecting model for chosen provider
+}
+```
+
+### Step 4: Create selection popup UI
+
+When in ProviderPicker mode:
+- Show a centered list of provider names with their default models
+- Use ↑↓ to navigate, Enter to select
+- After selecting provider → switch to ModelPicker mode
+- In ModelPicker: show list of models for that provider, ↑↓/Enter to select
+- Esc to cancel/close
+
+Use existing render patterns from `CommandPalette` (already in tui.rs).
+
+### Step 5: Wire real provider
+
+When a provider+model is selected:
+1. Read API key from `~/.tau/credentials.json`
+2. Build `ProviderConfig` with base_url, api_key, model
+3. Create `OpenAiCompatibleProvider` (for openai-compatible) or appropriate provider
+4. Replace `agent_loop` in App
+5. Status bar shows current provider/model
+
+### Step 6: Update the `/model` command handler
+
+Change from static text to triggering the ProviderPicker popup.
+
+### Step 7: Add `toml` and `dirs` dependencies
+
+In Cargo.toml:
+```toml
+toml = "0.8"
+dirs = "6"
+```
 
 ## Verification
 ```bash
-cargo build          # must compile
-cargo test --lib     # all 282 pass
+cargo build          # must compile with new deps
+cargo test --lib     # all 282 tests still pass
 cargo clippy         # zero warnings
 ```
 
 ## CRITICAL
-- Do NOT remove any existing functionality
-- The TUI `run()` runs in a loop — it only exits on Ctrl+C or Ctrl+Q
-- Agent runs in background tokio task, events stream into a channel that the main loop reads
-- Use `tokio::sync::mpsc::unbounded_channel()` for AgentEvent → TUI communication
-- The main event loop polls both crossterm events AND the agent channel
-- Use `tokio::task::spawn_blocking` or a separate thread for the crossterm event loop since ratatui + crossterm is not async-native
+- Keep MockProvider as fallback when no config files found
+- Provider/model info is per-tab (each tab can have different provider)
+- Store provider name, model name, and API key in Tab struct
+- Error handling: if API key missing, show "⚠️ No API key for {provider}" instead of crashing
+- Read ALL existing source files first before modifying

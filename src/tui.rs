@@ -21,25 +21,213 @@
 //! `/help`, `/profile`, `/model`, `/tools`, `/skills`, `/config`,
 //! `/diff`, `/permissions`, `/sessions`, `/rollback`, `/undo`, `/clear`
 
-use crate::agent::{AgentEvent, AgentLoop, AgentMessage};
+use crate::agent::{AgentEvent, AgentLoop, AgentMessage, ModelProvider};
 use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
 use crate::profiles::{self, RustProfile};
 use crate::providers::mock::MockProvider;
+use crate::providers::openai_compatible::OpenAiCompatibleProvider;
+use crate::providers::ProviderConfig;
 use crate::tools::rust_tools;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::io::{Stdout, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
+// Provider config (~/.tau/*.toml + *.json)
+// ---------------------------------------------------------------------------
+
+/// A provider loaded from `~/.tau/catalog.toml`.
+///
+/// Each provider has a `kind` (e.g. `"openai-compatible"`), a `base_url`,
+/// the list of `models` it serves, and a `default_model`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInfo {
+    /// Provider name, e.g. `"9router"` or `"openai-codex"`.
+    pub name: String,
+    /// Provider kind, e.g. `"openai-compatible"`.
+    pub kind: String,
+    /// Base URL for the API (e.g. `"http://127.0.0.1:20128/v1"`).
+    pub base_url: String,
+    /// Models served by this provider.
+    pub models: Vec<String>,
+    /// The provider's default model.
+    pub default_model: String,
+}
+
+/// Deserialization shape for a single `[[providers]]` entry in `catalog.toml`.
+///
+/// Unknown fields (`display_name`, `api_key_env`, `context_windows`, …) are
+/// ignored by serde, so the richer real-world catalog still parses.
+#[derive(Debug, Deserialize)]
+struct CatalogProvider {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    models: Vec<String>,
+    #[serde(default)]
+    default_model: String,
+}
+
+/// Deserialization shape for the top-level `catalog.toml` document.
+#[derive(Debug, Deserialize, Default)]
+struct Catalog {
+    #[serde(default)]
+    providers: Vec<CatalogProvider>,
+}
+
+/// Deserialization shape for `~/.tau/providers.json`. We only need the
+/// default provider name; the `provider_preferences` map is ignored.
+#[derive(Debug, Deserialize, Default)]
+struct ProvidersFile {
+    #[serde(default)]
+    default_provider: String,
+}
+
+/// Return the `~/.tau` config directory.
+///
+/// Resolves the home directory from `$HOME` (falling back to `$USERPROFILE`
+/// on Windows, then `.`), matching the convention used by [`config`].
+fn tau_config_dir() -> PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".tau")
+}
+
+/// Parse providers from `catalog.toml` content.
+///
+/// Returns an empty vec when the document is empty or malformed (the caller
+/// falls back to the mock provider in that case).
+fn parse_catalog(content: &str) -> Vec<ProviderInfo> {
+    let Ok(catalog) = toml::from_str::<Catalog>(content) else {
+        return Vec::new();
+    };
+    catalog
+        .providers
+        .into_iter()
+        .map(|p| ProviderInfo {
+            name: p.name,
+            kind: p.kind,
+            base_url: p.base_url,
+            models: p.models,
+            default_model: p.default_model,
+        })
+        .collect()
+}
+
+/// Parse the default provider name from `providers.json` content.
+fn parse_default_provider(content: &str) -> Option<String> {
+    let file: ProvidersFile = serde_json::from_str(content).ok()?;
+    let name = file.default_provider;
+    (!name.is_empty()).then_some(name)
+}
+
+/// Parse `credentials.json` into a `{ provider_name: api_key }` map.
+fn parse_credentials(content: &str) -> HashMap<String, String> {
+    serde_json::from_str(content).unwrap_or_default()
+}
+
+/// Load all providers from `~/.tau/catalog.toml`.
+///
+/// Returns an empty vec when the file is missing or unreadable — callers
+/// should treat that as "no providers configured" and keep the mock.
+pub fn load_provider_config() -> Vec<ProviderInfo> {
+    let path = tau_config_dir().join("catalog.toml");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    parse_catalog(&content)
+}
+
+/// Load the default provider name from `~/.tau/providers.json`.
+pub fn load_default_provider_name() -> Option<String> {
+    let path = tau_config_dir().join("providers.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return None;
+    };
+    parse_default_provider(&content)
+}
+
+/// Load the API key for `provider` from `~/.tau/credentials.json`.
+pub fn load_api_key(provider: &str) -> Option<String> {
+    let path = tau_config_dir().join("credentials.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return None;
+    };
+    let creds = parse_credentials(&content);
+    creds.get(provider).cloned().filter(|k| !k.is_empty())
+}
+
+/// Resolve the default `(provider, model)` pair from the catalog, honouring
+/// the `default_provider` from `providers.json` when present.
+///
+/// Returns `("", "")` when there are no providers.
+fn default_provider_model(providers: &[ProviderInfo]) -> (String, String) {
+    let Some(first) = providers.first() else {
+        return (String::new(), String::new());
+    };
+    let preferred = load_default_provider_name();
+    let chosen = providers
+        .iter()
+        .find(|p| Some(&p.name) == preferred.as_ref())
+        .unwrap_or(first);
+    let model = if chosen.default_model.is_empty() {
+        chosen.models.first().cloned().unwrap_or_default()
+    } else {
+        chosen.default_model.clone()
+    };
+    (chosen.name.clone(), model)
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/// State for the provider/model picker overlay.
+#[derive(Debug, Clone, Default)]
+pub struct Picker {
+    /// Selected index in the current list (providers or models).
+    pub selected: usize,
+    /// The provider chosen in the `ProviderPicker` step, carried into the
+    /// `ModelPicker` step. `None` while picking a provider.
+    pub provider: Option<ProviderInfo>,
+}
+
+impl Picker {
+    /// Move the selection down, wrapping around a list of `len` items.
+    pub fn select_next(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        self.selected = (self.selected + 1) % len;
+    }
+
+    /// Move the selection up, wrapping around a list of `len` items.
+    pub fn select_prev(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        self.selected = if self.selected == 0 {
+            len - 1
+        } else {
+            self.selected - 1
+        };
+    }
+}
 
 /// A single conversation tab.
 #[derive(Debug, Clone)]
@@ -54,6 +242,12 @@ pub struct Tab {
     pub edits: Vec<String>,
     /// Vertical scroll offset for the messages area.
     pub scroll_offset: usize,
+    /// Selected provider name for this tab (empty ⇒ mock provider).
+    pub provider: String,
+    /// Selected model for this tab.
+    pub model: String,
+    /// API key for this tab's provider (empty ⇒ no key / mock).
+    pub api_key: String,
 }
 
 impl Tab {
@@ -65,6 +259,29 @@ impl Tab {
             messages: Vec::new(),
             edits: Vec::new(),
             scroll_offset: 0,
+            provider: String::new(),
+            model: String::new(),
+            api_key: String::new(),
+        }
+    }
+
+    /// Create a new tab with an explicit provider/model/api-key.
+    pub fn with_provider(
+        name: impl Into<String>,
+        profile: &'static RustProfile,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            profile,
+            messages: Vec::new(),
+            edits: Vec::new(),
+            scroll_offset: 0,
+            provider: provider.into(),
+            model: model.into(),
+            api_key: api_key.into(),
         }
     }
 }
@@ -76,6 +293,10 @@ pub enum AppMode {
     Normal,
     /// Command palette is open.
     CommandPalette,
+    /// Provider picker popup is open (selecting a provider).
+    ProviderPicker,
+    /// Model picker popup is open (selecting a model for a chosen provider).
+    ModelPicker,
 }
 
 /// Application state for the TUI.
@@ -93,6 +314,10 @@ pub struct App {
     pub mode: AppMode,
     /// Command palette state.
     pub palette: CommandPalette,
+    /// Available providers loaded from `~/.tau/catalog.toml`.
+    pub providers: Vec<ProviderInfo>,
+    /// Provider/model picker overlay state.
+    pub picker: Picker,
     /// Whether the application should exit.
     pub should_quit: bool,
     /// Profile emoji display for the status bar.
@@ -121,7 +346,13 @@ impl App {
     /// ```
     pub fn new() -> Self {
         let profile = profiles::get_profile("rustacean").unwrap_or(&profiles::ALL_PROFILES[2]);
-        let tab = Tab::new("Chat 1", profile);
+
+        // Load providers from ~/.tau. When none are found the tab keeps empty
+        // provider/model fields and the agent loop falls back to MockProvider.
+        let providers = load_provider_config();
+        let (provider, model) = default_provider_model(&providers);
+        let api_key = load_api_key(&provider).unwrap_or_default();
+        let tab = Tab::with_provider("Chat 1", profile, provider, model, api_key);
 
         Self {
             tabs: vec![tab],
@@ -130,6 +361,8 @@ impl App {
             messages: Vec::new(),
             mode: AppMode::Normal,
             palette: CommandPalette::new(),
+            providers,
+            picker: Picker::default(),
             should_quit: false,
             profile_emoji: profile.emoji.to_string(),
             tools_count: 14,
@@ -164,6 +397,14 @@ impl App {
         );
         tab.messages = session.messages;
 
+        // Apply the configured default provider/model to the resumed tab.
+        let providers = load_provider_config();
+        let (provider, model) = default_provider_model(&providers);
+        let api_key = load_api_key(&provider).unwrap_or_default();
+        tab.provider = provider;
+        tab.model = model;
+        tab.api_key = api_key;
+
         let mut app = Self {
             tabs: vec![tab],
             active_tab: 0,
@@ -174,6 +415,8 @@ impl App {
             )],
             mode: AppMode::Normal,
             palette: CommandPalette::new(),
+            providers,
+            picker: Picker::default(),
             should_quit: false,
             profile_emoji: profile.emoji.to_string(),
             tools_count: 14,
@@ -220,7 +463,13 @@ impl App {
             .active_tab()
             .map(|t| t.profile)
             .unwrap_or(&profiles::ALL_PROFILES[2]);
-        let tab = Tab::new(format!("Chat {count}"), profile);
+        // Inherit the active tab's provider/model so the new tab keeps the
+        // same backend (or mock) as the one it was opened from.
+        let (provider, model, api_key) = self
+            .active_tab()
+            .map(|t| (t.provider.clone(), t.model.clone(), t.api_key.clone()))
+            .unwrap_or_default();
+        let tab = Tab::with_provider(format!("Chat {count}"), profile, provider, model, api_key);
         self.tabs.push(tab);
         self.active_tab = self.tabs.len() - 1;
         self.messages
@@ -231,12 +480,18 @@ impl App {
     /// created instead.
     pub fn close_tab(&mut self) {
         if self.tabs.len() <= 1 {
-            // Replace with a fresh tab instead of closing the last one.
+            // Replace with a fresh tab instead of closing the last one,
+            // preserving the current provider/model configuration.
             let profile = self
                 .active_tab()
                 .map(|t| t.profile)
                 .unwrap_or(&profiles::ALL_PROFILES[2]);
-            self.tabs[0] = Tab::new("Chat 1", profile);
+            let (provider, model, api_key) = self
+                .active_tab()
+                .map(|t| (t.provider.clone(), t.model.clone(), t.api_key.clone()))
+                .unwrap_or_default();
+            self.tabs[0] =
+                Tab::with_provider("Chat 1", profile, provider, model, api_key);
             self.messages
                 .push("🔄 Replaced last tab with a fresh one".into());
             return;
@@ -342,7 +597,15 @@ impl App {
                 }
                 "🧹 Chat cleared".into()
             }
-            "/model" => "🤖 Model: deepseek/deepseek-v4-flash (configurable in config)".into(),
+            "/model" => {
+                if self.providers.is_empty() {
+                    "⚠️  No providers found in ~/.tau/catalog.toml — using mock".into()
+                } else {
+                    self.picker = Picker::default();
+                    self.mode = AppMode::ProviderPicker;
+                    "🤖 Select a provider (↑↓ to navigate, Enter to select, Esc to cancel)".into()
+                }
+            }
             "/tools" => "🔧 14 Rust tools registered: cargo, rustc, rustfmt, clippy, rustup, \
                          audit, outdated, udeps, deny, bench, doc, test-doc, wasm-pack, rustc-explain"
                 .into(),
@@ -396,6 +659,57 @@ impl App {
 
     // ── Live TUI run loop ────────────────────────────────────────────
 
+    /// Signature identifying the active tab's provider configuration.
+    ///
+    /// Used to detect when the agent loop needs rebuilding (e.g. the user
+    /// switched tabs or selected a new provider/model).
+    fn active_signature(&self) -> String {
+        self.active_tab()
+            .map(|t| format!("{}|{}|{}", t.provider, t.model, t.api_key))
+            .unwrap_or_default()
+    }
+
+    /// Build a fresh [`AgentLoop`] for the active tab's configured provider.
+    ///
+    /// Falls back to a [`MockProvider`] when no provider is configured, when
+    /// the provider has no API key, or when the provider `kind` is not wired.
+    fn build_agent_loop(&self) -> AgentLoop {
+        let provider: Arc<dyn ModelProvider> = match self.active_tab() {
+            Some(tab) => self.build_provider_for(tab),
+            None => Arc::new(mock_greeting()),
+        };
+        AgentLoop::new(provider, RUST_SYSTEM_PROMPT.to_string(), rust_tools())
+    }
+
+    /// Build the concrete provider for a tab, with graceful mock fallbacks.
+    fn build_provider_for(&self, tab: &Tab) -> Arc<dyn ModelProvider> {
+        // Unknown provider name (or empty) ⇒ mock.
+        let Some(info) = self.providers.iter().find(|p| p.name == tab.provider) else {
+            return Arc::new(mock_greeting());
+        };
+        // No API key ⇒ mock with an actionable warning (never crash).
+        if tab.api_key.is_empty() {
+            return Arc::new(MockProvider::with_text(&format!(
+                "⚠️ No API key for {} — add it to ~/.tau/credentials.json",
+                tab.provider
+            )));
+        }
+        match info.kind.as_str() {
+            "openai-compatible" | "openai" => {
+                let cfg = ProviderConfig::new(
+                    "openai",
+                    tab.api_key.clone(),
+                    Some(info.base_url.clone()),
+                    tab.model.clone(),
+                );
+                Arc::new(OpenAiCompatibleProvider::new(cfg))
+            }
+            other => Arc::new(MockProvider::with_text(&format!(
+                "Provider kind `{other}` is not wired yet — using mock."
+            ))),
+        }
+    }
+
     /// Run the TUI: enter raw mode, render frames, and pump both terminal
     /// key events and streaming agent events until the user quits
     /// (`Ctrl+C` or `Ctrl+Q`).
@@ -410,14 +724,11 @@ impl App {
     /// forwarding every [`AgentEvent`] into a channel that this render
     /// loop drains on each frame.
     pub fn run(&mut self) -> anyhow::Result<()> {
-        // Build a mock-backed agent loop. `with_text` yields a single text
-        // response per turn (no tool calls), so each message completes in
-        // exactly one model round with no real subprocess execution.
-        let provider = Arc::new(MockProvider::with_text(
-            "🦀 Hello from Tua! I'm a mock agent streaming inside the TUI. \
-             Type a message and press Enter to chat.",
-        ));
-        let agent_loop = AgentLoop::new(provider, RUST_SYSTEM_PROMPT.to_string(), rust_tools());
+        // Build the agent loop for the active tab's provider/model. This is a
+        // real [`OpenAiCompatibleProvider`] when `~/.tau/catalog.toml` +
+        // `credentials.json` configure one, otherwise a [`MockProvider`].
+        let mut agent_loop = self.build_agent_loop();
+        let mut agent_signature = self.active_signature();
 
         // Bridge: agent background task → this synchronous render loop.
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
@@ -436,6 +747,13 @@ impl App {
             //    so the loop stays responsive to streaming agent events).
             if crossterm::event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
+                    // Rebuild the agent loop if the active tab's provider/model
+                    // changed (switched tabs, or selected a new provider/model).
+                    let signature = self.active_signature();
+                    if signature != agent_signature {
+                        agent_loop = self.build_agent_loop();
+                        agent_signature = signature;
+                    }
                     self.handle_tui_key(key, &agent_loop, &event_tx);
                 }
             }
@@ -735,6 +1053,92 @@ fn render(frame: &mut Frame, app: &mut App) {
             chunks[3]
         },
     );
+
+    // Floating overlays drawn last so they sit on top of the base layout.
+    match app.mode {
+        AppMode::ProviderPicker => render_provider_picker(frame, app),
+        AppMode::ModelPicker => render_model_picker(frame, app),
+        _ => {}
+    }
+}
+
+// ── Provider / Model Picker overlays ──────────────────────────────────
+
+/// Render a popup list of available providers.
+fn render_provider_picker(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 60, frame.area());
+    let items: Vec<ListItem> = app
+        .providers
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let prefix = if i == app.picker.selected { "▶ " } else { "  " };
+            ListItem::new(format!("{}{}  [{}]", prefix, p.name, p.default_model))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(Block::default().title(" Select Provider ").borders(Borders::ALL))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    frame.render_widget(Clear, area);
+    frame.render_widget(list, area);
+}
+
+/// Render a popup list of models for the currently selected provider.
+fn render_model_picker(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 60, frame.area());
+    let provider = match &app.picker.provider {
+        Some(p) => p,
+        None => return,
+    };
+
+    let items: Vec<ListItem> = provider
+        .models
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let prefix = if i == app.picker.selected { "▶ " } else { "  " };
+            let is_default = m == &provider.default_model;
+            let tag = if is_default { " (default)" } else { "" };
+            ListItem::new(format!("{}{}{}", prefix, m, tag))
+        })
+        .collect();
+
+    let title = format!(" Select Model — {} ", provider.name);
+    let list = List::new(items)
+        .block(Block::default().title(title).borders(Borders::ALL))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    frame.render_widget(Clear, area);
+    frame.render_widget(list, area);
+}
+
+/// Helper: return a rectangle centered in `r` with given width/height percentages.
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 /// Render the top tab bar with profile emojis.
@@ -999,6 +1403,8 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
 
     match app.mode {
         AppMode::CommandPalette => handle_palette_key(app, key),
+        AppMode::ProviderPicker => handle_provider_picker_key(app, key),
+        AppMode::ModelPicker => handle_model_picker_key(app, key),
         AppMode::Normal => handle_normal_key(app, key),
     }
 }
@@ -1072,7 +1478,11 @@ fn handle_palette_key(app: &mut App, key: KeyEvent) {
                 app.messages.push(result);
             }
             app.palette.visible = false;
-            app.mode = AppMode::Normal;
+            // Only drop back to Normal if the command didn't open another
+            // modal (e.g. /model switches to the ProviderPicker).
+            if app.mode == AppMode::CommandPalette {
+                app.mode = AppMode::Normal;
+            }
         }
         // Up — previous command
         KeyCode::Up => {
@@ -1094,9 +1504,96 @@ fn handle_palette_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+/// Handle key events when the provider picker is open.
+fn handle_provider_picker_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        // Esc — cancel
+        KeyCode::Esc => {
+            app.picker = Picker::default();
+            app.mode = AppMode::Normal;
+        }
+        // Up / Down — navigate providers
+        KeyCode::Up => app.picker.select_prev(app.providers.len()),
+        KeyCode::Down => app.picker.select_next(app.providers.len()),
+        // Enter — select provider, move on to model picker
+        KeyCode::Enter => {
+            if let Some(info) = app.providers.get(app.picker.selected).cloned() {
+                app.picker.provider = Some(info);
+                app.picker.selected = 0;
+                app.mode = AppMode::ModelPicker;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Handle key events when the model picker is open.
+fn handle_model_picker_key(app: &mut App, key: KeyEvent) {
+    let model_count = app
+        .picker
+        .provider
+        .as_ref()
+        .map(|p| p.models.len())
+        .unwrap_or(0);
+
+    match key.code {
+        // Esc — back to provider picker
+        KeyCode::Esc => {
+            app.picker.selected = 0;
+            app.mode = AppMode::ProviderPicker;
+        }
+        // Up / Down — navigate models
+        KeyCode::Up => app.picker.select_prev(model_count),
+        KeyCode::Down => app.picker.select_next(model_count),
+        // Enter — apply provider + model to the active tab
+        KeyCode::Enter => {
+            let Some(info) = app.picker.provider.clone() else {
+                app.mode = AppMode::Normal;
+                app.picker = Picker::default();
+                return;
+            };
+            let Some(model) = info.models.get(app.picker.selected).cloned() else {
+                return;
+            };
+
+            // Resolve the API key; warn and stay on mock if it's missing
+            // rather than crashing on a real request.
+            match load_api_key(&info.name) {
+                Some(key) => {
+                    if let Some(tab) = app.active_tab_mut() {
+                        tab.provider = info.name.clone();
+                        tab.model = model.clone();
+                        tab.api_key = key;
+                    }
+                    app.messages
+                        .push(format!("🤖 Switched to {} / {}", info.name, model));
+                    app.mode = AppMode::Normal;
+                    app.picker = Picker::default();
+                }
+                None => {
+                    app.messages
+                        .push(format!("⚠️  No API key for {} — add it to ~/.tau/credentials.json", info.name));
+                    app.mode = AppMode::Normal;
+                    app.picker = Picker::default();
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+/// The default mock greeting used when no real provider is configured.
+fn mock_greeting() -> MockProvider {
+    MockProvider::with_text(
+        "🦀 Hello from Tua! I'm a mock agent streaming inside the TUI. \
+         Type a message and press Enter to chat. Open the command palette \
+         (Ctrl+P) and run /model to switch to a real provider.",
+    )
+}
 
 /// Append `text` to the last assistant message in `tab`, creating a fresh
 /// assistant message if the last message is not an assistant turn (or the
