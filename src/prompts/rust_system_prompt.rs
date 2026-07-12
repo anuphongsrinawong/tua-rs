@@ -1796,7 +1796,7 @@ mod tests {
             "Missing inline guidance subsection"
         );
         assert!(
-            prompt.contains("memory layout"),
+            prompt.contains("Memory Layout"),
             "Missing memory layout subsection"
         );
         assert!(
