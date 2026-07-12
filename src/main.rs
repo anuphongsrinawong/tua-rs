@@ -1,17 +1,7 @@
 //! 🦀 Tua Agent RS v1.0.0
 
-pub mod agent;
-pub mod checkpoint;
-pub mod config;
-pub mod profiles;
-pub mod prompts;
-pub mod providers;
-pub mod review;
-pub mod session;
-pub mod skills;
-pub mod tools;
-
 use clap::{Parser, Subcommand};
+use tua_rs::{profiles, config, tui, session, completion, wasm, orchestrator};
 
 #[derive(Parser)]
 #[command(name = "tua-rs", version = "1.0.0")]

@@ -25,6 +25,7 @@ pub fn rust_tools() -> Vec<AgentTool> {
         cargo_test_doc_tool(),
         wasm_pack_tool(),
         rustc_explain_tool(),
+        grep_tool(),
     ]
 }
 
@@ -653,6 +654,73 @@ fn rustc_explain_tool() -> AgentTool {
                 let mut cmd = tokio::process::Command::new("rustc");
                 cmd.arg("--explain");
                 cmd.arg(&code);
+                run_cmd_output(&mut cmd).await
+            })
+        }),
+    )
+}
+
+// ── Grep Search Tool ─────────────────────────────────────────────────
+
+fn grep_tool() -> AgentTool {
+    AgentTool::new(
+        "grep",
+        "Search Rust source code using regex patterns. Returns matching lines with file paths and line numbers. Useful for finding function definitions, trait implementations, error types, or any code pattern.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regex pattern to search for (e.g., 'fn split', 'pub struct', 'impl.*Trait', 'E0308')"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Directory or file path to search in (defaults to src/)"
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "File glob pattern to filter (e.g., '*.rs', '*.toml') — defaults to '*.rs'"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return (default: 50)"
+                }
+            },
+            "required": ["pattern"]
+        }),
+        make_executor("grep", |args| {
+            let pattern = args["pattern"].as_str().unwrap_or("").to_string();
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("src");
+            let glob = args.get("glob").and_then(|v| v.as_str()).unwrap_or("*.rs");
+            let max = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+
+            // Use ripgrep (rg) if available, fall back to grep
+            let has_rg = std::process::Command::new("rg")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            let mut cmd = if has_rg {
+                let mut c = tokio::process::Command::new("rg");
+                c.arg("--line-number")
+                 .arg("--no-heading")
+                 .arg("--color=never")
+                 .arg("--max-count").arg(max.to_string())
+                 .arg("--glob").arg(glob)
+                 .arg(&pattern)
+                 .arg(path);
+                c
+            } else {
+                let mut c = tokio::process::Command::new("grep");
+                c.arg("-rn")
+                 .arg("--include").arg(glob)
+                 .arg("-m").arg(max.to_string())
+                 .arg(&pattern)
+                 .arg(path);
+                c
+            };
+
+            Box::pin(async move {
                 run_cmd_output(&mut cmd).await
             })
         }),
