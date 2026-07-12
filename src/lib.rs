@@ -24,6 +24,7 @@ pub mod review;
 pub mod sandbox;
 pub mod session;
 pub mod skills;
+pub mod testgen;
 pub mod tools;
 pub mod tui;
 pub mod wasm;
