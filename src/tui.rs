@@ -1527,13 +1527,7 @@ fn render_input_line(frame: &mut Frame, app: &App, area: Rect) {
         app.input_buffer.len()
     };
 
-    let paragraph = Paragraph::new(display_text)
-        .block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        )
-        .style(Style::default().bg(Color::Reset));
+    let paragraph = Paragraph::new(display_text).style(Style::default().bg(Color::Reset));
 
     frame.render_widget(paragraph, area);
 
