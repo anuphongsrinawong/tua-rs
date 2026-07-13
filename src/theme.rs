@@ -144,7 +144,10 @@ pub fn load() -> Theme {
                 dim: parse_or(&file.theme.colors.dim, dark_theme().colors.dim),
                 border: parse_or(&file.theme.colors.border, dark_theme().colors.border),
                 input_bg: parse_or(&file.theme.colors.input_bg, dark_theme().colors.input_bg),
-                palette_bg: parse_or(&file.theme.colors.palette_bg, dark_theme().colors.palette_bg),
+                palette_bg: parse_or(
+                    &file.theme.colors.palette_bg,
+                    dark_theme().colors.palette_bg,
+                ),
             },
         },
         _ => dark_theme(),

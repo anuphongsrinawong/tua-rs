@@ -41,11 +41,41 @@ pub fn run() -> anyhow::Result<bool> {
 
     let (provider_name, provider_kind, default_base_url, default_model, needs_key) =
         match provider_num {
-            1 => ("9router", "openai-compatible", "http://127.0.0.1:20128/v1", "ds/deepseek-v4-pro", true),
-            2 => ("deepseek", "openai-compatible", "https://api.deepseek.com/v1", "deepseek-chat", true),
-            3 => ("openai", "openai-compatible", "https://api.openai.com/v1", "gpt-4o", true),
-            4 => ("anthropic", "openai-compatible", "https://api.anthropic.com/v1", "claude-sonnet-4-20250514", true),
-            5 => ("ollama", "openai-compatible", "http://localhost:11434/v1", "llama3", false),
+            1 => (
+                "9router",
+                "openai-compatible",
+                "http://127.0.0.1:20128/v1",
+                "ds/deepseek-v4-pro",
+                true,
+            ),
+            2 => (
+                "deepseek",
+                "openai-compatible",
+                "https://api.deepseek.com/v1",
+                "deepseek-chat",
+                true,
+            ),
+            3 => (
+                "openai",
+                "openai-compatible",
+                "https://api.openai.com/v1",
+                "gpt-4o",
+                true,
+            ),
+            4 => (
+                "anthropic",
+                "openai-compatible",
+                "https://api.anthropic.com/v1",
+                "claude-sonnet-4-20250514",
+                true,
+            ),
+            5 => (
+                "ollama",
+                "openai-compatible",
+                "http://localhost:11434/v1",
+                "llama3",
+                false,
+            ),
             _ => ("custom", "openai-compatible", "", "gpt-4o", true),
         };
 
@@ -56,8 +86,16 @@ pub fn run() -> anyhow::Result<bool> {
 
     // ── Step 2: API Key ───────────────────────────────────────────────
     let api_key = if needs_key {
-        let key = ask_string_optional(&mut reader, &format!("  API key for {provider_name}"), "free");
-        if key.is_empty() { "free".to_string() } else { key }
+        let key = ask_string_optional(
+            &mut reader,
+            &format!("  API key for {provider_name}"),
+            "free",
+        );
+        if key.is_empty() {
+            "free".to_string()
+        } else {
+            key
+        }
     } else {
         "ollama".to_string()
     };
@@ -75,7 +113,11 @@ pub fn run() -> anyhow::Result<bool> {
 
     // ── Step 5: Self-correction ────────────────────────────────────────
     println!();
-    let self_correct = ask_yes_no(&mut reader, "🔁  Enable self-correction (auto-fix Rust errors)?", true);
+    let self_correct = ask_yes_no(
+        &mut reader,
+        "🔁  Enable self-correction (auto-fix Rust errors)?",
+        true,
+    );
 
     // ── Step 6: Tool timeout ───────────────────────────────────────────
     let timeout = ask_string(&mut reader, "⏱️  Tool timeout (seconds)", "30");
@@ -118,7 +160,13 @@ pub fn run() -> anyhow::Result<bool> {
     if catalog_path.exists() {
         println!("  ⏭  {} (already exists)", catalog_path.display());
     } else {
-        write_catalog(&catalog_path, provider_name, provider_kind, &base_url, &model)?;
+        write_catalog(
+            &catalog_path,
+            provider_name,
+            provider_kind,
+            &base_url,
+            &model,
+        )?;
         println!("  ✓ {}", catalog_path.display());
     }
 
@@ -226,13 +274,13 @@ fn write_default_theme(path: &PathBuf, theme_name: &str) -> anyhow::Result<()> {
     let (bg, fg, accent, user_msg, agent_msg, error, dim, border, input_bg, palette_bg) =
         if theme_name == "light" {
             (
-                "#f5f5f5", "#1a1a2e", "#0066cc", "#006600", "#0044aa",
-                "#cc0000", "#888888", "#cccccc", "#ffffff", "#e8e8f0",
+                "#f5f5f5", "#1a1a2e", "#0066cc", "#006600", "#0044aa", "#cc0000", "#888888",
+                "#cccccc", "#ffffff", "#e8e8f0",
             )
         } else {
             (
-                "#1a1a2e", "#e0e0e0", "#00d4ff", "#00ff88", "#00d4ff",
-                "#ff4444", "#666666", "#333355", "#0d0d1a", "#16213e",
+                "#1a1a2e", "#e0e0e0", "#00d4ff", "#00ff88", "#00d4ff", "#ff4444", "#666666",
+                "#333355", "#0d0d1a", "#16213e",
             )
         };
 

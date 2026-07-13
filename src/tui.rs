@@ -182,10 +182,7 @@ pub fn load_api_key(provider: &str) -> Option<String> {
 ///
 /// Falls back to a [`MockProvider`] when the provider or its API key
 /// is not found — never panics.
-pub fn load_provider(
-    provider_name: &str,
-    model: &str,
-) -> Arc<dyn ModelProvider> {
+pub fn load_provider(provider_name: &str, model: &str) -> Arc<dyn ModelProvider> {
     let providers = load_provider_config();
     let Some(info) = providers.iter().find(|p| p.name == provider_name) else {
         return Arc::new(mock_greeting());
@@ -1405,9 +1402,7 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
             AgentMessage::User { text } => {
                 let prefix = Span::styled(
                     "👤 ",
-                    Style::default()
-                        .fg(t.user_msg)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.user_msg).add_modifier(Modifier::BOLD),
                 );
                 let content = Span::styled(text.clone(), Style::default().fg(t.fg));
                 lines.push(Line::from(vec![prefix, content]));
@@ -1431,18 +1426,13 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
                         .fg(t.agent_msg)
                         .add_modifier(Modifier::BOLD),
                 );
-                let content = Span::styled(
-                    "[thinking...]",
-                    Style::default().fg(t.dim).italic(),
-                );
+                let content = Span::styled("[thinking...]", Style::default().fg(t.dim).italic());
                 lines.push(Line::from(vec![prefix, content]));
             }
             AgentMessage::ToolResult { output, .. } => {
                 let prefix = Span::styled(
                     "🔧 ",
-                    Style::default()
-                        .fg(t.accent)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
                 );
                 let truncated = truncate(output, 120);
                 let content = Span::styled(truncated, Style::default().fg(t.accent).italic());
@@ -1469,11 +1459,7 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::TOP)
                 .title(format!(" 💬 {} ", tab.name))
-                .title_style(
-                    Style::default()
-                        .fg(t.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                .title_style(Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
         )
         .highlight_style(Style::default().bg(t.border));
 
@@ -1513,11 +1499,7 @@ fn render_command_palette(frame: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(" 🔍 {} ", app.palette.filter))
-            .title_style(
-                Style::default()
-                    .fg(t.accent)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .title_style(Style::default().fg(t.accent).add_modifier(Modifier::BOLD))
             .border_style(Style::default().fg(t.accent)),
     );
 

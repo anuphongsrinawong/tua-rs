@@ -129,9 +129,7 @@ fn main() -> anyhow::Result<()> {
         _ => {
             if let Some(ref prompt) = cli.prompt {
                 let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(async {
-                    run_cli_agent(&cli, prompt).await
-                })?;
+                rt.block_on(async { run_cli_agent(&cli, prompt).await })?;
             } else {
                 println!("🦀 Tua Agent RS v1.0.0");
                 println!(
