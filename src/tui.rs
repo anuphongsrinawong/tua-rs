@@ -1457,7 +1457,7 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
     let list = List::new(visible_lines)
         .block(
             Block::default()
-                .borders(Borders::TOP)
+                .borders(Borders::ALL)
                 .title(format!(" 💬 {} ", tab.name))
                 .title_style(Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
         )
