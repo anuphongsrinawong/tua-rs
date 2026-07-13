@@ -27,6 +27,7 @@ use crate::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
 use crate::providers::mock::MockProvider;
 use crate::providers::openai_compatible::OpenAiCompatibleProvider;
 use crate::providers::ProviderConfig;
+use crate::theme::Theme;
 use crate::tools::rust_tools;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
@@ -395,6 +396,8 @@ pub struct App {
     pub picker: Picker,
     /// Whether the application should exit.
     pub should_quit: bool,
+    /// Current theme (dark or light).
+    pub theme: Theme,
     /// Profile emoji display for the status bar.
     pub profile_emoji: String,
     /// Number of active tools.
@@ -420,6 +423,11 @@ impl App {
     /// assert!(app.messages.is_empty());
     /// ```
     pub fn new() -> Self {
+        Self::with_theme("dark")
+    }
+
+    /// Create a new `App` with a specific theme.
+    pub fn with_theme(theme_name: &str) -> Self {
         let profile = profiles::get_profile("rustacean").unwrap_or(&profiles::ALL_PROFILES[2]);
 
         // Load providers from ~/.tau. When none are found the tab keeps empty
@@ -440,6 +448,7 @@ impl App {
             providers,
             picker: Picker::default(),
             should_quit: false,
+            theme: crate::theme::load_named(theme_name),
             profile_emoji: profile.emoji.to_string(),
             tools_count: 14,
             token_count: 0,
@@ -495,6 +504,7 @@ impl App {
             providers,
             picker: Picker::default(),
             should_quit: false,
+            theme: crate::theme::load(),
             profile_emoji: profile.emoji.to_string(),
             tools_count: 14,
             token_count: 0,
@@ -752,7 +762,7 @@ impl App {
         match command {
             "/help" => {
                 "📖 Commands: /help /profile /model /tools /skills /config /diff \
-                 /permissions /sessions /rollback /undo /clear"
+                 /permissions /sessions /rollback /undo /clear /theme"
                     .into()
             }
             "/profile" => {
@@ -779,6 +789,15 @@ impl App {
                     self.picker = Picker::default();
                     self.mode = AppMode::ProviderPicker;
                     "🤖 Select a provider (↑↓ to navigate, Enter to select, Esc to cancel)".into()
+                }
+            }
+            "/theme" => {
+                if self.theme.name == "dark" {
+                    self.theme = crate::theme::light_theme();
+                    "🎨 Theme: ☀️ Light".into()
+                } else {
+                    self.theme = crate::theme::dark_theme();
+                    "🎨 Theme: 🌙 Dark".into()
                 }
             }
             "/tools" => "🔧 14 Rust tools registered: cargo, rustc, rustfmt, clippy, rustup, \
@@ -1332,16 +1351,17 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 /// Render the top tab bar with profile emojis.
 fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span<'static>> = Vec::new();
+    let t = &app.theme.colors;
 
     for (i, tab) in app.tabs.iter().enumerate() {
         let is_active = i == app.active_tab;
         let style = if is_active {
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
+                .fg(t.bg)
+                .bg(t.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White).bg(Color::DarkGray)
+            Style::default().fg(t.fg).bg(t.border)
         };
 
         let prefix = if is_active { " ▶ " } else { "   " };
@@ -1351,7 +1371,7 @@ fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
 
         // Separator
         if i < app.tabs.len() - 1 {
-            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(" │ ", Style::default().fg(t.dim)));
         }
     }
 
@@ -1375,6 +1395,7 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
     let Some(tab) = app.tabs.get(app.active_tab) else {
         return;
     };
+    let t = &app.theme.colors;
 
     // Build display lines from the active tab's messages.
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(tab.messages.len() * 2);
@@ -1385,10 +1406,10 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
                 let prefix = Span::styled(
                     "👤 ",
                     Style::default()
-                        .fg(Color::Green)
+                        .fg(t.user_msg)
                         .add_modifier(Modifier::BOLD),
                 );
-                let content = Span::styled(text.clone(), Style::default().fg(Color::White));
+                let content = Span::styled(text.clone(), Style::default().fg(t.fg));
                 lines.push(Line::from(vec![prefix, content]));
             }
             AgentMessage::Assistant {
@@ -1397,22 +1418,22 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
                 let prefix = Span::styled(
                     "🤖 ",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(t.agent_msg)
                         .add_modifier(Modifier::BOLD),
                 );
-                let content = Span::styled(text.clone(), Style::default().fg(Color::Cyan));
+                let content = Span::styled(text.clone(), Style::default().fg(t.agent_msg));
                 lines.push(Line::from(vec![prefix, content]));
             }
             AgentMessage::Assistant { text: None, .. } => {
                 let prefix = Span::styled(
                     "🤖 ",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(t.agent_msg)
                         .add_modifier(Modifier::BOLD),
                 );
                 let content = Span::styled(
                     "[thinking...]",
-                    Style::default().fg(Color::DarkGray).italic(),
+                    Style::default().fg(t.dim).italic(),
                 );
                 lines.push(Line::from(vec![prefix, content]));
             }
@@ -1420,11 +1441,11 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
                 let prefix = Span::styled(
                     "🔧 ",
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(t.accent)
                         .add_modifier(Modifier::BOLD),
                 );
                 let truncated = truncate(output, 120);
-                let content = Span::styled(truncated, Style::default().fg(Color::Yellow).italic());
+                let content = Span::styled(truncated, Style::default().fg(t.accent).italic());
                 lines.push(Line::from(vec![prefix, content]));
             }
         }
@@ -1450,11 +1471,11 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
                 .title(format!(" 💬 {} ", tab.name))
                 .title_style(
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(t.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
         )
-        .highlight_style(Style::default().bg(Color::DarkGray));
+        .highlight_style(Style::default().bg(t.border));
 
     frame.render_widget(list, area);
 }
@@ -1462,6 +1483,7 @@ fn render_chat_area(frame: &mut Frame, app: &App, area: Rect) {
 /// Render the command palette overlay.
 fn render_command_palette(frame: &mut Frame, app: &App, area: Rect) {
     let filtered = app.palette.filtered_commands();
+    let t = &app.theme.colors;
 
     let items: Vec<ListItem> = filtered
         .iter()
@@ -1469,11 +1491,11 @@ fn render_command_palette(frame: &mut Frame, app: &App, area: Rect) {
         .map(|(i, cmd)| {
             let style = if i == app.palette.selected {
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
+                    .fg(t.bg)
+                    .bg(t.accent)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(t.fg)
             };
             ListItem::new(Line::from(Span::styled(*cmd, style)))
         })
@@ -1493,10 +1515,10 @@ fn render_command_palette(frame: &mut Frame, app: &App, area: Rect) {
             .title(format!(" 🔍 {} ", app.palette.filter))
             .title_style(
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(t.accent)
                     .add_modifier(Modifier::BOLD),
             )
-            .border_style(Style::default().fg(Color::Cyan)),
+            .border_style(Style::default().fg(t.accent)),
     );
 
     frame.render_widget(list, palette_area);

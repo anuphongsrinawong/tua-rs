@@ -36,8 +36,14 @@ enum Commands {
     Test,
     Review,
     Sessions,
-    Tui,
+    Tui {
+        /// Theme: "dark" or "light"
+        #[arg(long, default_value = "dark")]
+        theme: String,
+    },
     Bench,
+    /// Interactive setup wizard for first-time configuration
+    Setup,
     /// Compile a crate to WebAssembly
     Wasm {
         /// Path to the crate directory
@@ -77,14 +83,24 @@ fn main() -> anyhow::Result<()> {
             );
         }
         Some(Commands::Sessions) => println!("Session persistence: enabled"),
-        Some(Commands::Tui) => {
+        Some(Commands::Tui { theme }) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let mut app = tui::App::new();
+                let mut app = tui::App::with_theme(&theme);
                 app.run()
             })?;
         }
         Some(Commands::Bench) => println!("🏃 Benchmarks: cargo bench"),
+        Some(Commands::Setup) => {
+            let launch_tui = tua_rs::setup::run()?;
+            if launch_tui {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    let mut app = tui::App::new();
+                    app.run()
+                })?;
+            }
+        }
         Some(Commands::Wasm { path, release }) => {
             let mode = if release { "release" } else { "debug" };
             println!("🦀 Compiling {} to WebAssembly ({mode})...", path);
