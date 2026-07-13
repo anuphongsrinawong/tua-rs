@@ -1539,6 +1539,7 @@ fn render_input_line(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render the status bar with profile, tools, and token count.
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme.colors;
     let profile = app
         .tabs
         .get(app.active_tab)
@@ -1548,7 +1549,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let profile_text = format!(" {} {} ", profile.emoji, profile.name);
     let tools_text = format!(" 🔧 {} tools ", app.tools_count);
 
-    // Context guard: show token usage relative to model's max window
+    // Context guard: show token usage
     let model = app
         .tabs
         .get(app.active_tab)
@@ -1557,21 +1558,20 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = crate::context_guard::ContextStatus::check(&[], model);
     let ctx_text = format!(" {} ", status.render_bar(15));
 
-    let help_text = " Ctrl+P:palette  Ctrl+T:tab  Ctrl+W:close  Ctrl+C:quit ";
+    let help_text = " Ctrl+P:palette Ctrl+T:tab Ctrl+W:close Ctrl+C:quit ";
 
-    // Pad the status bar
-    let total_width = area.width as usize;
-    let status_content = format!(
-        "{:<width$}",
-        format!("{profile_text}{tools_text}{ctx_text}{help_text}"),
-        width = total_width
-    );
+    // Build status line, truncate to fit one row
+    let mut content = format!("{profile_text}{tools_text}{ctx_text}{help_text}");
+    let max_w = area.width as usize;
+    if content.len() > max_w {
+        content.truncate(max_w.saturating_sub(1));
+    }
 
     let paragraph = Paragraph::new(Text::styled(
-        status_content,
+        content,
         Style::default()
-            .fg(Color::Black)
-            .bg(Color::White)
+            .fg(t.bg)
+            .bg(t.accent)
             .add_modifier(Modifier::BOLD),
     ));
 
