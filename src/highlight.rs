@@ -28,7 +28,7 @@ pub fn highlight_rust(code: &str, accent: Color, fg: Color, dim: Color) -> Vec<S
     let mut spans: Vec<Span<'static>> = Vec::new();
 
     for line in LinesWithEndings::from(code) {
-        let line = line.trim_end_matches(|c| c == '\n' || c == '\r');
+        let line = line.trim_end_matches(['\n', '\r']);
         if line.is_empty() {
             spans.push(Span::raw("\n"));
             continue;
