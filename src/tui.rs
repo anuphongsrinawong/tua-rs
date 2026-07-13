@@ -172,6 +172,45 @@ pub fn load_api_key(provider: &str) -> Option<String> {
     creds.get(provider).cloned().filter(|k| !k.is_empty())
 }
 
+/// Build a concrete [`ModelProvider`] from the Tau config files.
+///
+/// Reads `~/.tau/catalog.toml` and `~/.tau/credentials.json` to
+/// resolve the provider name → base URL + API key, then constructs
+/// the appropriate provider implementation (currently only
+/// `openai-compatible` is wired).
+///
+/// Falls back to a [`MockProvider`] when the provider or its API key
+/// is not found — never panics.
+pub fn load_provider(
+    provider_name: &str,
+    model: &str,
+) -> Arc<dyn ModelProvider> {
+    let providers = load_provider_config();
+    let Some(info) = providers.iter().find(|p| p.name == provider_name) else {
+        return Arc::new(mock_greeting());
+    };
+    let api_key = load_api_key(provider_name).unwrap_or_default();
+    if api_key.is_empty() {
+        return Arc::new(MockProvider::with_text(&format!(
+            "⚠️ No API key for {provider_name} — add it to ~/.tau/credentials.json"
+        )));
+    }
+    match info.kind.as_str() {
+        "openai-compatible" | "openai" => {
+            let cfg = ProviderConfig::new(
+                "openai",
+                api_key,
+                Some(info.base_url.clone()),
+                model.to_string(),
+            );
+            Arc::new(OpenAiCompatibleProvider::new(cfg))
+        }
+        other => Arc::new(MockProvider::with_text(&format!(
+            "Provider kind `{other}` is not wired yet — using mock."
+        ))),
+    }
+}
+
 /// Resolve the default `(provider, model)` pair from the catalog, honouring
 /// the `default_provider` from `providers.json` when present.
 ///
@@ -1747,7 +1786,7 @@ fn handle_model_picker_key(app: &mut App, key: KeyEvent) {
 // ---------------------------------------------------------------------------
 
 /// The default mock greeting used when no real provider is configured.
-fn mock_greeting() -> MockProvider {
+pub fn mock_greeting() -> MockProvider {
     MockProvider::with_text(
         "🦀 Hello from Tua! I'm a mock agent streaming inside the TUI. \
          Type a message and press Enter to chat. Open the command palette \

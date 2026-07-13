@@ -1,7 +1,13 @@
 //! 🦀 Tua Agent RS v1.0.0
 
 use clap::{Parser, Subcommand};
-use tua_rs::{config, profiles};
+use std::sync::Arc;
+use tua_rs::agent::{AgentEvent, AgentLoop, AgentMessage, ModelProvider};
+use tua_rs::config;
+use tua_rs::profiles;
+use tua_rs::prompts::rust_system_prompt::RUST_SYSTEM_PROMPT;
+use tua_rs::tools::rust_tools;
+use tua_rs::tui;
 
 #[derive(Parser)]
 #[command(name = "tua-rs", version = "1.0.0")]
@@ -74,7 +80,7 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Tui) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let mut app = tua_rs::tui::App::new();
+                let mut app = tui::App::new();
                 app.run()
             })?;
         }
@@ -106,18 +112,86 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {
             if let Some(ref prompt) = cli.prompt {
-                println!(
-                    "🦀 Tua Agent RS v1.0.0 | {} | {}",
-                    cli.profile, cli.provider
-                );
-                println!("💬 {}", prompt);
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    run_cli_agent(&cli, prompt).await
+                })?;
             } else {
                 println!("🦀 Tua Agent RS v1.0.0");
                 println!(
                     "Commands: profiles | config | check | test | review | sessions | tui | bench"
                 );
+                println!();
+                println!("💡 Quick chat:  tua-rs --provider 9router --model ds/deepseek-v4-pro -p \"your task\"");
             }
         }
     }
+    Ok(())
+}
+
+/// Run the agent in CLI mode: build provider, create AgentLoop, stream to stdout.
+async fn run_cli_agent(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
+    println!(
+        "🦀 Tua Agent RS v1.0.0 | {} | {}",
+        cli.profile, cli.provider
+    );
+
+    // Build provider from config files (graceful fallback to Mock)
+    let provider: Arc<dyn ModelProvider> = tui::load_provider(&cli.provider, &cli.model);
+
+    let system = RUST_SYSTEM_PROMPT;
+    let tools = rust_tools();
+    let agent = AgentLoop::new(provider, system, tools);
+
+    let messages = vec![AgentMessage::user(prompt)];
+    let mut stream = agent.run(messages);
+
+    use futures::StreamExt;
+    let mut thinking = false;
+    while let Some(event) = stream.next().await {
+        match event {
+            AgentEvent::ThinkingDelta(text) => {
+                if !thinking {
+                    eprint!("\n🤔 ");
+                    thinking = true;
+                }
+                eprint!("{}", text);
+            }
+            AgentEvent::TextDelta(text) => {
+                if thinking {
+                    eprintln!();
+                    thinking = false;
+                }
+                print!("{}", text);
+            }
+            AgentEvent::ToolCall(tc) => {
+                if thinking {
+                    eprintln!();
+                    thinking = false;
+                }
+                eprintln!("\n🔧 {}({})", tc.name, tc.arguments);
+            }
+            AgentEvent::ToolResult { output, .. } => {
+                // Show first 300 chars of tool results
+                let preview: String = output.chars().take(300).collect();
+                let suffix = if output.len() > 300 { "..." } else { "" };
+                eprintln!("📋 {}{}", preview, suffix);
+            }
+            AgentEvent::Done => {
+                if thinking {
+                    eprintln!();
+                }
+                break;
+            }
+            AgentEvent::Error(e) => {
+                if thinking {
+                    eprintln!();
+                }
+                eprintln!("\n❌ Error: {e}");
+                break;
+            }
+        }
+    }
+    println!(); // final newline
     Ok(())
 }
