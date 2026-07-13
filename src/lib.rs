@@ -12,6 +12,7 @@ pub mod context;
 pub mod context_guard;
 pub mod dashboard;
 pub mod hierarchy;
+pub mod highlight;
 pub mod learning;
 pub mod lsp;
 pub mod memory;

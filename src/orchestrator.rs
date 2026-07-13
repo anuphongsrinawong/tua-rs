@@ -16,6 +16,7 @@
 //! - **Progress Bar** — `[█░░] X/Y` display during parallel execution.
 
 use crate::context;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -665,27 +666,31 @@ pub fn plan_and_run(description: &str, max_parallel: usize) -> OrchestrationResu
     let pd = Arc::new(AtomicUsize::new(0));
     let pdc = Arc::clone(&pd);
     let desc = description.to_string();
+
+    let pb = ProgressBar::new(total as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("█░"),
+    );
+
     let handle = std::thread::spawn(move || {
         let r = orchestrate(&desc, max_parallel);
         pc.store(r.total, Ordering::SeqCst);
         pdc.store(1, Ordering::SeqCst);
         r
     });
-    {
-        use std::io::Write;
-        while pd.load(Ordering::SeqCst) == 0 {
-            let c = progress.load(Ordering::SeqCst);
-            let bar = render_progress_bar(c, total, 20);
-            print!("\r   {bar}");
-            let _ = std::io::stdout().flush();
-            if c >= total {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
+
+    while pd.load(Ordering::SeqCst) == 0 {
         let c = progress.load(Ordering::SeqCst);
-        println!("\r   {}", render_progress_bar(c, total, 20));
+        pb.set_position(c as u64);
+        if c >= total {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    pb.finish_with_message("✅ Complete");
     let result = handle.join().unwrap_or_else(|_| OrchestrationResult {
         total,
         passed: 0,

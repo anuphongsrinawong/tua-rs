@@ -1,13 +1,14 @@
 //! 🛠️ Interactive setup wizard for first-time Tua configuration.
 //!
 //! Walks the user through configuring providers, API keys, models, and
-//! preferences, then writes the necessary config files.
+//! preferences using [`inquire`] for beautiful interactive prompts,
+//! then writes the necessary config files.
 //!
 //! All paths use [`dirs::config_dir`] so this works on Linux, macOS, and Windows.
 
+use inquire::{Confirm, Select, Text};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -23,53 +24,62 @@ pub fn run() -> anyhow::Result<bool> {
     println!("════════════════════════════");
     println!();
 
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-
     // ── Step 1: Provider ──────────────────────────────────────────────
-    println!("📡  Choose your AI provider:");
-    println!();
-    println!("   1) 9Router (local proxy — recommended, free)");
-    println!("   2) DeepSeek (direct API)");
-    println!("   3) OpenAI");
-    println!("   4) Anthropic (Claude)");
-    println!("   5) Ollama (local)");
-    println!("   6) Custom OpenAI-compatible endpoint");
-    println!();
+    let provider_choice = Select::new(
+        "📡  Choose your AI provider:",
+        vec![
+            "9Router (local proxy — recommended, free)",
+            "DeepSeek (direct API)",
+            "OpenAI",
+            "Anthropic (Claude)",
+            "Ollama (local)",
+            "Custom OpenAI-compatible endpoint",
+        ],
+    )
+    .with_starting_cursor(0)
+    .prompt()
+    .unwrap_or("9Router (local proxy — recommended, free)");
 
-    let provider_num = ask_number(&mut reader, "Provider [1-6]", 1, 6, 1);
+    let provider_idx = match provider_choice {
+        s if s.starts_with("9Router") => 0,
+        s if s.starts_with("DeepSeek") => 1,
+        s if s.starts_with("OpenAI") => 2,
+        s if s.starts_with("Anthropic") => 3,
+        s if s.starts_with("Ollama") => 4,
+        _ => 5,
+    };
 
     let (provider_name, provider_kind, default_base_url, default_model, needs_key) =
-        match provider_num {
-            1 => (
+        match provider_idx {
+            0 => (
                 "9router",
                 "openai-compatible",
                 "http://127.0.0.1:20128/v1",
                 "ds/deepseek-v4-pro",
                 true,
             ),
-            2 => (
+            1 => (
                 "deepseek",
                 "openai-compatible",
                 "https://api.deepseek.com/v1",
                 "deepseek-chat",
                 true,
             ),
-            3 => (
+            2 => (
                 "openai",
                 "openai-compatible",
                 "https://api.openai.com/v1",
                 "gpt-4o",
                 true,
             ),
-            4 => (
+            3 => (
                 "anthropic",
                 "openai-compatible",
                 "https://api.anthropic.com/v1",
                 "claude-sonnet-4-20250514",
                 true,
             ),
-            5 => (
+            4 => (
                 "ollama",
                 "openai-compatible",
                 "http://localhost:11434/v1",
@@ -80,17 +90,19 @@ pub fn run() -> anyhow::Result<bool> {
         };
 
     let mut base_url = default_base_url.to_string();
-    if provider_num == 6 {
-        base_url = ask_string(&mut reader, "  Base URL", "http://localhost:8080/v1");
+    if provider_idx == 5 {
+        base_url = Text::new("Base URL:")
+            .with_default("http://localhost:8080/v1")
+            .prompt()
+            .unwrap_or_else(|_| "http://localhost:8080/v1".into());
     }
 
     // ── Step 2: API Key ───────────────────────────────────────────────
     let api_key = if needs_key {
-        let key = ask_string_optional(
-            &mut reader,
-            &format!("  API key for {provider_name}"),
-            "free",
-        );
+        let key = Text::new(&format!("API key for {provider_name}:"))
+            .with_default("free")
+            .prompt()
+            .unwrap_or_else(|_| "free".into());
         if key.is_empty() {
             "free".to_string()
         } else {
@@ -101,26 +113,33 @@ pub fn run() -> anyhow::Result<bool> {
     };
 
     // ── Step 3: Model ──────────────────────────────────────────────────
-    let model = ask_string(&mut reader, "  Default model", default_model);
+    let model = Text::new("Default model:")
+        .with_default(default_model)
+        .prompt()
+        .unwrap_or_else(|_| default_model.into());
 
     // ── Step 4: TUI Theme ──────────────────────────────────────────────
-    println!();
-    println!("🎨  TUI Theme:");
-    println!("   1) Dark  🌙 (default)");
-    println!("   2) Light ☀️");
-    let theme_num = ask_number(&mut reader, "Theme [1-2]", 1, 2, 1);
-    let theme_name = if theme_num == 1 { "dark" } else { "light" };
+    let theme_choice = Select::new("🎨  TUI Theme:", vec!["Dark  🌙", "Light ☀️"])
+        .with_starting_cursor(0)
+        .prompt()
+        .unwrap_or("Dark  🌙");
+    let theme_name = if theme_choice.starts_with("Light") {
+        "light"
+    } else {
+        "dark"
+    };
 
     // ── Step 5: Self-correction ────────────────────────────────────────
-    println!();
-    let self_correct = ask_yes_no(
-        &mut reader,
-        "🔁  Enable self-correction (auto-fix Rust errors)?",
-        true,
-    );
+    let self_correct = Confirm::new("🔁  Enable self-correction (auto-fix Rust errors)?")
+        .with_default(true)
+        .prompt()
+        .unwrap_or(true);
 
     // ── Step 6: Tool timeout ───────────────────────────────────────────
-    let timeout = ask_string(&mut reader, "⏱️  Tool timeout (seconds)", "30");
+    let timeout = Text::new("⏱️  Tool timeout (seconds):")
+        .with_default("30")
+        .prompt()
+        .unwrap_or_else(|_| "30".into());
 
     // ── Write config files ─────────────────────────────────────────────
     println!();
@@ -140,11 +159,14 @@ pub fn run() -> anyhow::Result<bool> {
     // ~/.tua-rs/config.toml
     let tua_config_path = tua_config_dir.join("config.toml");
     if tua_config_path.exists() {
-        if !ask_yes_no(
-            &mut reader,
-            &format!("  {} exists. Overwrite?", tua_config_path.display()),
-            false,
-        ) {
+        let overwrite = Confirm::new(&format!(
+            "  {} exists. Overwrite?",
+            tua_config_path.display()
+        ))
+        .with_default(false)
+        .prompt()
+        .unwrap_or(false);
+        if !overwrite {
             println!("  ⏭  Skipped");
         } else {
             write_tua_config(&tua_config_path, &model, self_correct, &timeout, theme_name)?;
@@ -217,7 +239,11 @@ pub fn run() -> anyhow::Result<bool> {
     println!();
 
     // ── Launch TUI? ───────────────────────────────────────────────────
-    Ok(ask_yes_no(&mut reader, "🚀  Launch TUI now?", true))
+    let launch = Confirm::new("🚀  Launch TUI now?")
+        .with_default(true)
+        .prompt()
+        .unwrap_or(true);
+    Ok(launch)
 }
 
 // ---------------------------------------------------------------------------
@@ -307,55 +333,4 @@ palette_bg = "{palette_bg}"
     );
     fs::write(path, content)?;
     Ok(())
-}
-
-// ── Input helpers ─────────────────────────────────────────────────────
-
-fn ask_string(reader: &mut impl BufRead, prompt: &str, default: &str) -> String {
-    print!("  {prompt} [{default}]: ");
-    io::stdout().flush().ok();
-    let mut line = String::new();
-    reader.read_line(&mut line).ok();
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        default.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn ask_string_optional(reader: &mut impl BufRead, prompt: &str, default: &str) -> String {
-    ask_string(reader, prompt, default)
-}
-
-fn ask_number(reader: &mut impl BufRead, prompt: &str, min: u32, max: u32, default: u32) -> u32 {
-    loop {
-        print!("  {prompt} [{default}]: ");
-        io::stdout().flush().ok();
-        let mut line = String::new();
-        reader.read_line(&mut line).ok();
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return default;
-        }
-        if let Ok(n) = trimmed.parse::<u32>() {
-            if n >= min && n <= max {
-                return n;
-            }
-        }
-        println!("  ⚠️  Please enter {min}-{max}");
-    }
-}
-
-fn ask_yes_no(reader: &mut impl BufRead, prompt: &str, default_yes: bool) -> bool {
-    let default = if default_yes { "Y/n" } else { "y/N" };
-    print!("  {prompt} [{default}]: ");
-    io::stdout().flush().ok();
-    let mut line = String::new();
-    reader.read_line(&mut line).ok();
-    let trimmed = line.trim().to_lowercase();
-    if trimmed.is_empty() {
-        return default_yes;
-    }
-    matches!(trimmed.as_str(), "y" | "yes")
 }
